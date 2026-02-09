@@ -2,58 +2,46 @@ from game import Game
 
 
 def interactive_loop(game: Game):
-    """Интерактивный цикл для ручного тестирования."""
     while True:
         print("\n" + "=" * 50)
         game.print_state()
 
         hand = game.hands[game.current_player]
-        print(f"\nИгрок {game.current_player}, ваша рука:")
-        for i, card in enumerate(hand):
-            print(f"  [{i}] {card.name:12} {card}")
+        print(f"\nРука Игрока {game.current_player}:")
+        hand_display = " | ".join([f"{i}: {c.name} {c}" for i, c in enumerate(hand)])
+        print(hand_display)
 
-        command = input("\nВвод (x y) для проверки, 'auto' для теста, 'q' выход: ").strip().lower()
+        command = input("\nВведите координаты (x y) для хода или 'q' для выхода: ").strip().lower()
 
         if command == 'q':
             break
 
-        if command == 'auto':
-            run_auto_test(game)
-            continue
-
         try:
             x, y = map(int, command.split())
 
-            # 1. Сначала проверяем, что сюда можно поставить
-            available = game.check_possible_moves_at(x, y)
+            moves = game.get_possible_moves_at(x, y)
 
-            # 2. Если есть варианты, предлагаем выбрать
-            if available:
-                choice = input("Номер карты для хода (или Enter для отмены): ")
-                if choice.isdigit():
-                    idx = int(choice)
-                    # Простая проверка, есть ли такой индекс в доступных
-                    if any(a[0] == idx for a in available):
-                        game.play_turn(idx, x, y)
-                    else:
-                        print("Эту карту нельзя сюда поставить!")
+            if not moves:
+                print("Нет подходящих карт для этой клетки.")
+                continue
+
+            print(f"\nДоступные варианты хода в ({x}, {y}):")
+            for i, (hand_idx, card_obj, needs_rotation) in enumerate(moves):
+                rot_text = " (ПОВЕРНУТЬ)" if needs_rotation else ""
+                print(f"  Вариант {i+1}: Карта №{hand_idx} [{card_obj.name}]{rot_text} -> {card_obj}")
+
+            choice = input("Выберите номер ВАРИАНТА (не карты): ")
+            if choice.isdigit():
+                choice_idx = int(choice)
+                if 0 <= choice_idx < len(moves):
+                    hand_idx, _, needs_rotation = moves[choice_idx-1]
+
+                    game.play_turn(hand_idx, x, y, rotate_before_playing=needs_rotation)
+                else:
+                    print("Неверный номер варианта.")
+
         except ValueError:
-            print("Ошибка ввода. Используйте формат: x y")
-
-
-def run_auto_test(game: Game):
-    print("\n--- Запуск авто-теста ---")
-    # Тест 1: Неверный ход (Стена в Туннель)
-    print("Попытка: Вертикальная карта справа от старта (ошибка)")
-    v_idx = next((i for i, c in enumerate(game.hands[game.current_player]) if c.name == "Vertical"), -1)
-    if v_idx != -1:
-        game.play_turn(v_idx, 1, 0)
-
-    # Тест 2: Верный ход
-    print("Попытка: Горизонтальная карта справа от старта (успех)")
-    h_idx = next((i for i, c in enumerate(game.hands[game.current_player]) if c.name == "Horizontal"), -1)
-    if h_idx != -1:
-        game.play_turn(h_idx, 1, 0)
+            print("Ошибка ввода. Формат: x y")
 
 
 if __name__ == "__main__":

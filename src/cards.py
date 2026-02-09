@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+import copy
 
 class Direction(Enum):
     UP = (0, -1)
@@ -9,7 +10,6 @@ class Direction(Enum):
 
 @dataclass
 class CardOpenings:
-    """Определяет, где у карты есть проходы."""
     up: bool = False
     down: bool = False
     left: bool = False
@@ -22,6 +22,10 @@ class CardOpenings:
         if direction == Direction.RIGHT: return self.right
         return False
 
+    def rotate(self):
+        self.up, self.down = self.down, self.up
+        self.left, self.right = self.right, self.left
+
 @dataclass
 class Card:
     name: str
@@ -30,18 +34,24 @@ class Card:
 class TunnelCard(Card):
     openings: CardOpenings
 
+    def rotate(self):
+        self.openings.rotate()
+
+    def get_rotated_copy(self) -> 'TunnelCard':
+        new_card = copy.deepcopy(self)
+        new_card.rotate()
+        new_card.name = f"{self.name} (180°)"
+        return new_card
+
     def __str__(self):
-        # Битовая маска: Up(8) Down(4) Left(2) Right(1)
         mask = 0
         if self.openings.up: mask += 8
         if self.openings.down: mask += 4
         if self.openings.left: mask += 2
         if self.openings.right: mask += 1
 
-        # Символы псевдографики
         symbols = {
-            0: " ? ",
-            1: " ╺ ", 2: " ╸ ", 3: " ═ ",
+            0: " ? ", 1: "  ╺", 2: "╸  ", 3: " ═ ",
             4: " ╻ ", 5: " ┏ ", 6: " ┓ ", 7: " ┳ ",
             8: " ╹ ", 9: " ┗ ", 10: " ┛ ", 11: " ┻ ",
             12: " ║ ", 13: " ┣ ", 14: " ┫ ", 15: " ╬ ",

@@ -30,15 +30,11 @@ class GameBoard:
 
             if neighbor_card:
                 has_neighbor = True
-
-                # [cite_start]Проверка стыковки: Туннель к туннелю, стена к стене [cite: 59]
                 my_opening = new_card.openings.get_opening(direction)
-
                 opposite_dir = self._get_opposite_dir(direction)
                 neighbor_opening = neighbor_card.openings.get_opening(opposite_dir)
 
                 if my_opening != neighbor_opening:
-                    # Для отладки можно раскомментировать print
                     # print(f"Несовпадение с соседом {direction.name}")
                     return False
 
