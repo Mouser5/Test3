@@ -2,11 +2,20 @@ from dataclasses import dataclass
 from enum import Enum
 import copy
 
+
 class Direction(Enum):
-    UP = (0, -1)
-    DOWN = (0, 1)
+    UP = (0, 1)
+    DOWN = (0, -1)
     LEFT = (-1, 0)
     RIGHT = (1, 0)
+
+
+class ConsoleColor:
+    BLUE = '\033[94m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RESET = '\033[0m'
+
 
 @dataclass
 class CardOpenings:
@@ -26,13 +35,17 @@ class CardOpenings:
         self.up, self.down = self.down, self.up
         self.left, self.right = self.right, self.left
 
+
 @dataclass
 class Card:
     name: str
 
+
 @dataclass
 class TunnelCard(Card):
     openings: CardOpenings
+    is_gold: bool = False
+    color: str = ConsoleColor.RESET  # Цвет карты
 
     def rotate(self):
         self.openings.rotate()
@@ -41,9 +54,14 @@ class TunnelCard(Card):
         new_card = copy.deepcopy(self)
         new_card.rotate()
         new_card.name = f"{self.name} (180°)"
+        new_card.color = self.color  # Сохраняем цвет при копировании
         return new_card
 
     def __str__(self):
+        # Если карта золотая и не открыта (в рамках этой задачи просто показываем вопрос)
+        if self.is_gold:
+            return f"{self.color} ? {ConsoleColor.RESET}"
+
         mask = 0
         if self.openings.up: mask += 8
         if self.openings.down: mask += 4
@@ -56,4 +74,6 @@ class TunnelCard(Card):
             8: " ╹ ", 9: " ┗ ", 10: " ┛ ", 11: " ┻ ",
             12: " ║ ", 13: " ┣ ", 14: " ┫ ", 15: " ╬ ",
         }
-        return symbols.get(mask, " ? ")
+
+        symbol = symbols.get(mask, " ? ")
+        return f"{self.color}{symbol}{ConsoleColor.RESET}"
