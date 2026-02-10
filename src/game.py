@@ -51,11 +51,14 @@ class Game:
     def _create_deck(self) -> List[TunnelCard]:
         deck = []
         # Стандартный набор карт
-        for _ in range(10): deck.append(TunnelCard("Vertical", CardOpenings(up=True, down=True)))
-        for _ in range(10): deck.append(TunnelCard("Horizontal", CardOpenings(left=True, right=True)))
-        for _ in range(10): deck.append(TunnelCard("Turn L-D", CardOpenings(left=True, down=True)))
-        for _ in range(10): deck.append(TunnelCard("Turn U-L", CardOpenings(up=True, left=True)))
-        for _ in range(5): deck.append(TunnelCard("Cross", CardOpenings(True, True, True, True)))
+        for _ in range(3): deck.append(TunnelCard("", CardOpenings(up=True, down=True)))
+        for _ in range(10): deck.append(TunnelCard("", CardOpenings(left=True, right=True)))
+        for _ in range(10): deck.append(TunnelCard("", CardOpenings(left=True, down=True)))
+        for _ in range(10): deck.append(TunnelCard("", CardOpenings(up=True, left=True)))
+        for _ in range(5): deck.append(TunnelCard("", CardOpenings(True, True, True, True)))
+        for _ in range(100): deck.append(TunnelCard("", CardOpenings(True, True, True)))
+        for _ in range(40): deck.append(TunnelCard("",CardOpenings(up=True)))
+        for _ in range(40): deck.append(TunnelCard("",CardOpenings(left=True)))
         random.shuffle(deck)
         return deck
 
