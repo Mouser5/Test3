@@ -33,7 +33,7 @@ def interactive_loop(game: Game):
             choice = input("Выберите номер ВАРИАНТА (не карты): ")
             if choice.isdigit():
                 choice_idx = int(choice)
-                if 0 <= choice_idx < len(moves):
+                if 0 <= choice_idx <= len(moves):
                     hand_idx, _, needs_rotation = moves[choice_idx-1]
 
                     game.play_turn(hand_idx, x, y, rotate_before_playing=needs_rotation)

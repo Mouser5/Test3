@@ -45,7 +45,8 @@ class Card:
 class TunnelCard(Card):
     openings: CardOpenings
     is_gold: bool = False
-    color: str = ConsoleColor.RESET  # Цвет карты
+    gold_value: int = 0  # [NEW] Количество золота (0 если не золото или закрыто)
+    color: str = ConsoleColor.RESET
 
     def rotate(self):
         self.openings.rotate()
@@ -54,14 +55,23 @@ class TunnelCard(Card):
         new_card = copy.deepcopy(self)
         new_card.rotate()
         new_card.name = f"{self.name} (180°)"
-        new_card.color = self.color  # Сохраняем цвет при копировании
+        # new_card.color = self.color
+        # new_card.gold_value = self.gold_value
+        # new_card.is_gold = self.is_gold
         return new_card
 
     def __str__(self):
-        # Если карта золотая и не открыта (в рамках этой задачи просто показываем вопрос)
+        # Если карта золотая
         if self.is_gold:
+            # Если это уже открытое золото (есть значение)
+            if self.gold_value > 0:
+                # Формат $X$: знаки доллара цветом игрока, число - желтым
+                return f"{self.color}${ConsoleColor.YELLOW}{self.gold_value}{self.color}${ConsoleColor.RESET}"
+
+            # Если это закрытое золото (заглушка)
             return f"{self.color} ? {ConsoleColor.RESET}"
 
+        # ... (далее код для обычных туннелей без изменений)
         mask = 0
         if self.openings.up: mask += 8
         if self.openings.down: mask += 4

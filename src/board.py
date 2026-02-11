@@ -47,8 +47,9 @@ class GameBoard:
                 neighbor_opening = neighbor_card.openings.get_opening(opposite_dir)
 
                 # Правило: туннель к туннелю, стена к стене
-                if my_opening != neighbor_opening:
-                    return False
+                if not (neighbor_card.is_gold and neighbor_card.gold_value==0):
+                    if my_opening != neighbor_opening:
+                        return False
 
                 # Если мы соединились туннелем (True-True), запоминаем этого соседа для проверки пути
                 if my_opening and neighbor_opening:
