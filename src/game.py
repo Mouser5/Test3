@@ -66,16 +66,51 @@ class Game:
             self.board.place_card(x, y, gold_card)
 
     def _create_deck(self) -> List[TunnelCard]:
+        # 1. Выносим конфигурации в структуру данных (список словарей или кортежей)
+        # Это позволяет легко менять баланс игры, не трогая основной код.
+        card_configs = [
+            # (Название, Openings(U, D, L, R), Subnetworks, Количество)
+            ("Split T Vertical", (True, True, True, True),
+             [{Direction.UP}, {Direction.DOWN, Direction.LEFT, Direction.RIGHT}], 10),
+            ("Split T Left", (True, True, True, True),
+             [{Direction.LEFT}, {Direction.DOWN, Direction.UP, Direction.RIGHT}], 10),
+            ("Bridge", (True, True, True, True), [{Direction.LEFT, Direction.RIGHT}, {Direction.DOWN, Direction.UP}],
+             10),
+
+            # Перекрестки и туннели
+            ("Crossroad", (True, True, True, True), None, 10),
+            ("T-Junction", (True, True, True, False), None, 10),
+            ("Straight Vertical", (True, True, False, False), None, 3),
+            ("Straight Horizontal", (False, False, True, True), None, 10),
+            ("Corner LD", (False, True, True, False), None, 10),
+            ("Corner UL", (True, False, True, False), None, 10),
+
+            # Тупики
+            ("Dead End Up", (True, False, False, False), None, 10),
+            ("Dead End Left", (False, False, True, False), None, 10),
+        ]
+
         deck = []
-        # Стандартный набор карт
-        for _ in range(3): deck.append(TunnelCard("", CardOpenings(up=True, down=True)))
-        for _ in range(10): deck.append(TunnelCard("", CardOpenings(left=True, right=True)))
-        for _ in range(10): deck.append(TunnelCard("", CardOpenings(left=True, down=True)))
-        for _ in range(10): deck.append(TunnelCard("", CardOpenings(up=True, left=True)))
-        for _ in range(10): deck.append(TunnelCard("", CardOpenings(True, True, True, True)))
-        for _ in range(10): deck.append(TunnelCard("", CardOpenings(True, True, True)))
-        for _ in range(10): deck.append(TunnelCard("",CardOpenings(up=True)))
-        for _ in range(10): deck.append(TunnelCard("",CardOpenings(left=True)))
+
+        # 2. Единый цикл сборки колоды
+        for name, ops, subs, count in card_configs:
+            # Распаковываем openings
+            openings = CardOpenings(up=ops[0], down=ops[1], left=ops[2], right=ops[3])
+
+            # Создаем карту
+            card = TunnelCard(
+                name=name,
+                openings=openings,
+                subnetworks=subs if subs else [],  # Если подсети не указаны, ставим пустой список
+                color=ConsoleColor.RESET
+            )
+
+            # Добавляем нужное количество копий
+            for _ in range(count):
+                # Используем copy(), если TunnelCard — изменяемый объект,
+                # чтобы у каждой карты в колоде было свое состояние
+                deck.append(card.copy() if hasattr(card, 'copy') else card)
+
         random.shuffle(deck)
         return deck
 
@@ -156,7 +191,7 @@ class Game:
             rotated_copy = card.get_rotated_copy()
             rotated_copy.color = self.player_colors[self.current_player]
 
-            if rotated_copy.openings != card.openings:
+            if rotated_copy.openings != card.openings or rotated_copy.subnetworks != card.subnetworks:
                 if self.board.is_move_valid(x, y, rotated_copy, start_pos):
                     possible_moves.append((idx, rotated_copy, True))
 
