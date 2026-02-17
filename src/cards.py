@@ -49,6 +49,9 @@ class TunnelCard(Card):
     gold_value: int = 0
     color: str = ConsoleColor.RESET
 
+    # [NEW] Флаг лестницы
+    is_ladder: bool = False
+
     # [NEW] Список групп связанных направлений.
     # По умолчанию None означает, что все открытые выходы связаны (стандартная карта).
     # Пример спецкарты: [{Direction.UP}, {Direction.DOWN, Direction.LEFT, Direction.RIGHT}]
@@ -116,6 +119,9 @@ class TunnelCard(Card):
             if self.gold_value > 0:
                 return f"{self.color}${ConsoleColor.YELLOW}{self.gold_value}{self.color}${ConsoleColor.RESET}"
             return f"{self.color} ? {ConsoleColor.RESET}"
+
+        if self.is_ladder:
+            return f"{self.color} # {ConsoleColor.RESET}"
 
         # [NEW] Визуализация спецкарты (если есть подсети)
         if self.subnetworks and len(self.subnetworks) > 1:

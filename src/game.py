@@ -1,3 +1,4 @@
+import copy
 import random
 from typing import List, Dict, Tuple
 from cards import TunnelCard, CardOpenings, ConsoleColor, Direction
@@ -70,46 +71,42 @@ class Game:
         # Это позволяет легко менять баланс игры, не трогая основной код.
         card_configs = [
             # (Название, Openings(U, D, L, R), Subnetworks, Количество)
-            ("Split T Vertical", (True, True, True, True),
-             [{Direction.UP}, {Direction.DOWN, Direction.LEFT, Direction.RIGHT}], 10),
-            ("Split T Left", (True, True, True, True),
-             [{Direction.LEFT}, {Direction.DOWN, Direction.UP, Direction.RIGHT}], 10),
-            ("Bridge", (True, True, True, True), [{Direction.LEFT, Direction.RIGHT}, {Direction.DOWN, Direction.UP}],
-             10),
+            ("Ladder", (False, True, True, False), None, True, 4),
+            # ("Split T Vertical", (True, True, True, True),
+            #  [{Direction.UP}, {Direction.DOWN, Direction.LEFT, Direction.RIGHT}], 10),
+            # ("Split T Left", (True, True, True, True),
+            #  [{Direction.LEFT}, {Direction.DOWN, Direction.UP, Direction.RIGHT}], 10),
+            # ("Bridge", (True, True, True, True), [{Direction.LEFT, Direction.RIGHT}, {Direction.DOWN, Direction.UP}],
+            #  10),
 
             # Перекрестки и туннели
-            ("Crossroad", (True, True, True, True), None, 10),
-            ("T-Junction", (True, True, True, False), None, 10),
-            ("Straight Vertical", (True, True, False, False), None, 3),
-            ("Straight Horizontal", (False, False, True, True), None, 10),
-            ("Corner LD", (False, True, True, False), None, 10),
-            ("Corner UL", (True, False, True, False), None, 10),
-
-            # Тупики
-            ("Dead End Up", (True, False, False, False), None, 10),
-            ("Dead End Left", (False, False, True, False), None, 10),
+            ("Crossroad", (True, True, True, True), None, None, 10),
+            # ("T-Junction", (True, True, True, False), None, 10),
+            # ("Straight Vertical", (True, True, False, False), None, 3),
+            # ("Straight Horizontal", (False, False, True, True), None, 10),
+            # ("Corner LD", (False, True, True, False), None, 10),
+            # ("Corner UL", (True, False, True, False), None, 10),
+            #
+            # # Тупики
+            # ("Dead End Up", (True, False, False, False), None, 10),
+            # ("Dead End Left", (False, False, True, False), None, 10),
         ]
 
         deck = []
 
         # 2. Единый цикл сборки колоды
-        for name, ops, subs, count in card_configs:
-            # Распаковываем openings
+        for name, ops, subs, is_ladder_flag, count in card_configs:
             openings = CardOpenings(up=ops[0], down=ops[1], left=ops[2], right=ops[3])
 
-            # Создаем карту
             card = TunnelCard(
                 name=name,
                 openings=openings,
-                subnetworks=subs if subs else [],  # Если подсети не указаны, ставим пустой список
+                subnetworks=subs if subs else None,
+                is_ladder=is_ladder_flag,  # [NEW]
                 color=ConsoleColor.RESET
             )
-
-            # Добавляем нужное количество копий
             for _ in range(count):
-                # Используем copy(), если TunnelCard — изменяемый объект,
-                # чтобы у каждой карты в колоде было свое состояние
-                deck.append(card.copy() if hasattr(card, 'copy') else card)
+                deck.append(card.copy() if hasattr(card, 'copy') else copy.deepcopy(card))
 
         random.shuffle(deck)
         return deck
@@ -131,9 +128,11 @@ class Game:
             card_to_play.rotate()
 
         start_pos = self.start_positions[self.current_player]
+        current_color = self.player_colors[self.current_player]  # Получаем цвет
 
-        if self.board.is_move_valid(x, y, card_to_play, start_pos):
-            card_to_play.color = self.player_colors[self.current_player]
+        # [UPDATE] Передаем цвет игрока в валидацию
+        if self.board.is_move_valid(x, y, card_to_play, start_pos, current_color):
+            card_to_play.color = current_color  # Красим карту
 
             self.board.place_card(x, y, card_to_play)
             hand.pop(card_idx)
@@ -180,19 +179,22 @@ class Game:
         hand = self.hands[self.current_player]
         possible_moves = []
         start_pos = self.start_positions[self.current_player]
+        current_color = self.player_colors[self.current_player]
 
         for idx, card in enumerate(hand):
             temp_color = card.color
-            card.color = self.player_colors[self.current_player]
+            card.color = current_color  # Временно красим для проверки
 
-            if self.board.is_move_valid(x, y, card, start_pos):
+            # [UPDATE] Передаем цвет
+            if self.board.is_move_valid(x, y, card, start_pos, current_color):
                 possible_moves.append((idx, card, False))
 
             rotated_copy = card.get_rotated_copy()
-            rotated_copy.color = self.player_colors[self.current_player]
+            rotated_copy.color = current_color
 
             if rotated_copy.openings != card.openings or rotated_copy.subnetworks != card.subnetworks:
-                if self.board.is_move_valid(x, y, rotated_copy, start_pos):
+                # [UPDATE] Передаем цвет
+                if self.board.is_move_valid(x, y, rotated_copy, start_pos, current_color):
                     possible_moves.append((idx, rotated_copy, True))
 
             card.color = temp_color
