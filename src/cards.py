@@ -15,6 +15,8 @@ class ConsoleColor:
     BLUE = '\033[94m'
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
+    RED = '\033[91m'     # Для заблокированных дверей
+    CYAN = '\033[96m'    # Для ключей
     RESET = '\033[0m'
 
 
@@ -49,69 +51,51 @@ class TunnelCard(Card):
     gold_value: int = 0
     color: str = ConsoleColor.RESET
 
-    # [NEW] Флаг лестницы
     is_ladder: bool = False
-
-    # [NEW] Список групп связанных направлений.
-    # По умолчанию None означает, что все открытые выходы связаны (стандартная карта).
-    # Пример спецкарты: [{Direction.UP}, {Direction.DOWN, Direction.LEFT, Direction.RIGHT}]
     subnetworks: Optional[List[Set[Direction]]] = None
 
-    def get_exits(self, entry_from: Optional[Direction]) -> Set[Direction]:
-        """
-        Возвращает доступные выходы, если мы вошли в карту со стороны entry_from.
-        entry_from - это направление ОТКУДА мы пришли (например, если пришли снизу, то entry_from=UP, т.к. вход снизу это UP).
-        Нет, стоп. В board.py логика: entry_from - это сторона самой карты.
-        Если мы идем с клетки (0,0) ВВЕРХ на (0,1), то мы входим в (0,1) через DOWN.
-        """
-        # Сначала собираем все открытые стороны
-        all_open = {d for d in Direction if self.openings.get_opening(d)}
+    # [NEW] Новые механики дверей и ключей
+    is_door: bool = False
+    is_locked: bool = True  # По умолчанию дверь закрыта для соперника
+    is_key: bool = False
 
-        # Если подсети не заданы, все открытые выходы связаны
+    def get_exits(self, entry_from: Optional[Direction]) -> Set[Direction]:
+        all_open = {d for d in Direction if self.openings.get_opening(d)}
         if self.subnetworks is None:
             return all_open
-
-        # Если заданы подсети, ищем ту, в которую мы вошли
-        # Если entry_from is None (мы стартуем с этой карты), возвращаем все возможные
         if entry_from is None:
-            # Объединяем все подсети
             result = set()
             for net in self.subnetworks:
                 result.update(net)
             return result & all_open
-
         for net in self.subnetworks:
             if entry_from in net:
-                # Мы попали в эту подсеть. Можем выйти в любую сторону этой подсети,
-                # которая физически открыта.
                 return net & all_open
-
-        # Если вход недоступен (по идее невозможно, если проверки пройдены)
         return set()
 
     def rotate(self):
+        # Ключи не вращаются (это предмет, а не туннель)
+        if self.is_key:
+            return
+
         self.openings.rotate()
-        # [NEW] Ротация подсетей
         if self.subnetworks:
             new_subnetworks = []
             for net in self.subnetworks:
                 new_net = set()
                 for d in net:
-                    if d == Direction.UP:
-                        new_net.add(Direction.DOWN)
-                    elif d == Direction.DOWN:
-                        new_net.add(Direction.UP)
-                    elif d == Direction.LEFT:
-                        new_net.add(Direction.RIGHT)
-                    elif d == Direction.RIGHT:
-                        new_net.add(Direction.LEFT)
+                    if d == Direction.UP: new_net.add(Direction.DOWN)
+                    elif d == Direction.DOWN: new_net.add(Direction.UP)
+                    elif d == Direction.LEFT: new_net.add(Direction.RIGHT)
+                    elif d == Direction.RIGHT: new_net.add(Direction.LEFT)
                 new_subnetworks.append(new_net)
             self.subnetworks = new_subnetworks
 
     def get_rotated_copy(self) -> 'TunnelCard':
         new_card = copy.deepcopy(self)
         new_card.rotate()
-        new_card.name = f"{self.name} (180°)"
+        if not self.is_key:
+            new_card.name = f"{self.name} (180°)"
         return new_card
 
     def __str__(self):
@@ -120,16 +104,22 @@ class TunnelCard(Card):
                 return f"{self.color}${ConsoleColor.YELLOW}{self.gold_value}{self.color}${ConsoleColor.RESET}"
             return f"{self.color} ? {ConsoleColor.RESET}"
 
+        if self.is_key:
+            return f"{ConsoleColor.CYAN} KEY {ConsoleColor.RESET}"
+
+        # Отображение двери
+        if self.is_door:
+            if self.is_locked:
+                return f"{self.color}▐█▌{ConsoleColor.RESET}" # Закрытая дверь
+            else:
+                return f"{self.color}▐ {ConsoleColor.RESET}▌{ConsoleColor.RESET}" # Открытая дверь
+
         if self.is_ladder:
             return f"{self.color} # {ConsoleColor.RESET}"
 
-        # [NEW] Визуализация спецкарты (если есть подсети)
         if self.subnetworks and len(self.subnetworks) > 1:
-            # Это упрощенная визуализация для T-split карты
-            # Если это наша карта (Верх отдельно, Т-низ отдельно)
-            # Проверяем маску, чтобы понять ориентацию
             if self.openings.up and self.openings.down and self.openings.left:
-                return f"{self.color} ∓ {ConsoleColor.RESET}"  # Примерный символ
+                return f"{self.color} ∓ {ConsoleColor.RESET}"
 
         mask = 0
         if self.openings.up: mask += 8
@@ -143,6 +133,5 @@ class TunnelCard(Card):
             8: " ╹ ", 9: " ┗ ", 10: " ┛ ", 11: " ┻ ",
             12: " ║ ", 13: " ┣ ", 14: " ┫ ", 15: " ╬ ",
         }
-
         symbol = symbols.get(mask, " ? ")
         return f"{self.color}{symbol}{ConsoleColor.RESET}"

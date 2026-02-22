@@ -4,7 +4,7 @@ from cards import TunnelCard, Direction, ConsoleColor
 
 class GameBoard:
     def __init__(self):
-        self.grid: Dict[Tuple[int, int], TunnelCard] = {}  #
+        self.grid: Dict[Tuple[int, int], TunnelCard] = {}
 
     def place_card(self, x: int, y: int, card: TunnelCard):
         self.grid[(x, y)] = card
@@ -21,25 +21,35 @@ class GameBoard:
     def is_move_valid(self, x: int, y: int, new_card: TunnelCard, player_start_pos: Tuple[int, int],
                       player_color: str) -> bool:
         """
-        Обновленная валидация:
-        1. Клетка свободна.
-        2. Стыковка с соседями.
-        3. Лестница: НЕЛЬЗЯ рядом с золотом, МОЖНО без пути к старту (если есть любой сосед).
-        4. Обычная карта: МОЖНО, если есть путь от (Старта ИЛИ Любой Лестницы игрока).
+        Обрабатывает два сценария:
+        1. Размещение карты туннеля/двери/лестницы на пустую клетку.
+        2. Использование КЛЮЧА на клетку с чужой закрытой ДВЕРЬЮ.
         """
+
+        # СЦЕНАРИЙ 2: Использование ключа
+        if new_card.is_key:
+            target_card = self.grid.get((x, y))
+            if not target_card or not target_card.is_door:
+                return False
+
+            # Ключом можно открыть только чужую закрытую дверь
+            if target_card.color == player_color or not target_card.is_locked:
+                return False
+
+                # Проверяем, есть ли к двери путь (BFS должен дойти до координат двери)
+            return self._check_path_connectivity(x, y, player_start_pos, player_color)
+
+        # СЦЕНАРИЙ 1: Обычная установка (клетка должна быть пустой)
         if (x, y) in self.grid:
             return False
 
         has_neighbor = False
-        connected_to_valid_path = False
-
-        # Временно ставим карту для проверки
-        self.grid[(x, y)] = new_card
-
-        neighbors_to_check = []
+        has_tunnel_connection = False
         valid_geometry = True
 
-        # 1. Проверка соседей (Geometry check + Gold check for Ladder)
+        self.grid[(x, y)] = new_card
+
+        # 1. Проверка соседей (Geometry check)
         for direction in Direction:
             dx, dy = direction.value
             neighbor_pos = (x + dx, y + dy)
@@ -48,7 +58,7 @@ class GameBoard:
             if neighbor_card:
                 has_neighbor = True
 
-                # [NEW] ПРАВИЛО ЛЕСТНИЦЫ: Нельзя ставить рядом с золотом (открытым или закрытым)
+                # Правило лестницы: нельзя рядом с золотом/стартом
                 if new_card.is_ladder and (neighbor_card.is_gold or neighbor_card.name.__contains__("Start ")):
                     valid_geometry = False
                     break
@@ -62,57 +72,51 @@ class GameBoard:
                         valid_geometry = False
                         break
 
+                # Фикс: карта должна соединяться именно туннелем, а не просто "глухими стенами"
                 if my_opening and neighbor_opening:
-                    neighbors_to_check.append(neighbor_pos)
+                    has_tunnel_connection = True
 
-        if not has_neighbor or not valid_geometry:
+        # Откатываем сетку, если геометрия невалидна или карта вообще ни с чем не стыкуется туннелями
+        if not has_neighbor or not valid_geometry or not has_tunnel_connection:
             del self.grid[(x, y)]
             return False
 
         # 2. Проверка пути (Connectivity check)
-
-        # Если это лестница, и она имеет соседа (has_neighbor True и geometry валидна),
-        # то ей не нужно проверять путь до старта. Она сама становится стартом.
         if new_card.is_ladder:
+            # Лестнице не нужен непрерывный путь от старта, она сама становится стартом
             del self.grid[(x, y)]
             return True
 
-        # Если обычная карта - ищем путь от Старта ИЛИ от Лестниц игрока
-        start_nodes = {player_start_pos}
-
-        # [NEW] Добавляем все существующие лестницы этого игрока как стартовые точки
-        for pos, card in self.grid.items():
-            # Проверяем, что это лестница И она принадлежит текущему игроку (по цвету)
-            # Примечание: предполагается, что цвет карты совпадает с цветом игрока
-            if card.is_ladder and card.color == player_color and pos != (x, y):
-                start_nodes.add(pos)
-
-        # Запускаем BFS от всех стартовых точек (Multi-source BFS)
-        reachable_states = self._bfs_reachable_states(start_nodes)
-
-        # Проверяем, достигли ли мы новой карты
-        # reachable_states содержит (x, y, entry_direction)
-        for (rx, ry, _) in reachable_states:
-            if rx == x and ry == y:
-                connected_to_valid_path = True
-                break
+        is_connected = self._check_path_connectivity(x, y, player_start_pos, player_color)
 
         del self.grid[(x, y)]
+        return is_connected
 
-        return connected_to_valid_path
+    def _check_path_connectivity(self, target_x: int, target_y: int, player_start_pos: Tuple[int, int],
+                                 player_color: str) -> bool:
+        start_nodes = {player_start_pos}
+        for pos, card in self.grid.items():
+            if card.is_ladder and card.color == player_color and pos != (target_x, target_y):
+                start_nodes.add(pos)
 
-    def _bfs_reachable_states(self, start_nodes: Set[Tuple[int, int]]) -> Set[Tuple[int, int, Optional[Direction]]]:
+        reachable_states = self._bfs_reachable_states(start_nodes, player_color)
+
+        for (rx, ry, _) in reachable_states:
+            if rx == target_x and ry == target_y:
+                return True
+
+        return False
+
+    def _bfs_reachable_states(self, start_nodes: Set[Tuple[int, int]], player_color: str) -> Set[
+        Tuple[int, int, Optional[Direction]]]:
         """
-        BFS с поддержкой множества стартовых точек.
-        start_nodes: множество координат (x, y), откуда начинается путь (Старт + Лестницы).
+        BFS, учитывающий цвет игрока и ДВЕРИ.
         """
         visited = set()
         queue = []
 
-        # Инициализация очереди
         for start_pos in start_nodes:
             if start_pos in self.grid:
-                # Начальное состояние: мы "внутри" карты, entry_dir=None
                 state = (start_pos[0], start_pos[1], None)
                 visited.add(state)
                 queue.append(state)
@@ -123,6 +127,12 @@ class GameBoard:
             if not curr_card: continue
 
             allowed_exits = curr_card.get_exits(entry_dir)
+
+            # [NEW] Логика Дверей
+            # Если мы зашли в чужую закрытую дверь, мы обнуляем доступные выходы из неё.
+            # Мы можем на неё "встать" (чтобы применить ключ), но пройти сквозь неё дальше нельзя.
+            if curr_card.is_door and curr_card.color != player_color and curr_card.is_locked:
+                allowed_exits = set()
 
             for direction in allowed_exits:
                 dx, dy = direction.value
@@ -138,8 +148,3 @@ class GameBoard:
                             visited.add(new_state)
                             queue.append(new_state)
         return visited
-
-    def _bfs_reachable_nodes(self, start_pos):
-        # Обертка для совместимости (если нужна)
-        states = self._bfs_reachable_states({start_pos})
-        return {(s[0], s[1]) for s in states}

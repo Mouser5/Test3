@@ -20,7 +20,7 @@ def interactive_loop(game: Game):
             x, y = map(int, command.split())
 
             moves = game.get_possible_moves_at(x, y)
-
+            existing_card = game.board.get_card(x, y)
             if not moves:
                 print("Нет подходящих карт для этой клетки.")
                 continue
