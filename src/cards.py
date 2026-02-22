@@ -58,6 +58,7 @@ class TunnelCard(Card):
     is_door: bool = False
     is_locked: bool = True  # По умолчанию дверь закрыта для соперника
     is_key: bool = False
+    is_rockfall: bool = False
 
     def get_exits(self, entry_from: Optional[Direction]) -> Set[Direction]:
         all_open = {d for d in Direction if self.openings.get_opening(d)}
@@ -116,6 +117,9 @@ class TunnelCard(Card):
 
         if self.is_ladder:
             return f"{self.color} # {ConsoleColor.RESET}"
+
+        if self.is_rockfall:
+            return f"{ConsoleColor.RED} Х {ConsoleColor.RESET}"
 
         if self.subnetworks and len(self.subnetworks) > 1:
             if self.openings.up and self.openings.down and self.openings.left:

@@ -58,13 +58,13 @@ class Game:
         card_configs = [
             # (Название, Openings(U, D, L, R), Subnetworks, Количество)
             #("Ladder", (False, True, True, False), None, True, False, False, 4),
-            ("Split T Vertical", (True, True, True, True), [{Direction.UP}, {Direction.DOWN, Direction.LEFT, Direction.RIGHT}],None, None, None, 10),
+            # ("Split T Vertical", (True, True, True, True), [{Direction.UP}, {Direction.DOWN, Direction.LEFT, Direction.RIGHT}],None, None, None, 10),
             # ("Split T Left", (True, True, True, True),
             #  [{Direction.LEFT}, {Direction.DOWN, Direction.UP, Direction.RIGHT}], 10),
-            #("Bridge", (True, True, True, True), [{Direction.LEFT, Direction.RIGHT}, {Direction.DOWN, Direction.UP}], None, None, None, 10),
+            # ("Bridge", (True, True, True, True), [{Direction.LEFT, Direction.RIGHT}, {Direction.DOWN, Direction.UP}], None, None, None, 10),
 
             # Перекрестки и туннели
-            ("Crossroad", (True, True, True, True), None, None, False, False, 8),
+            ("Crossroad", (True, True, True, True), None, None, None, None, None, 8),
             # ("T-Junction", (True, True, True, False), None, 10),
             # ("Straight Vertical", (True, True, False, False), None, 3),
             # ("Straight Horizontal", (False, False, True, True), None, 10),
@@ -82,15 +82,16 @@ class Game:
 
             # [NEW] Ключи
             # У ключа нет "выходов", это карта действия.
-            # ("Key", (False, False, False, False), None, False, False, True, 2),
+            # ("Key", (False, False, False, False), None, False, False, True, 4),
+            ("Boom", (False, False, False, False), None, None, None,None, True, 4),
         ]
 
         deck = []
-        for name, ops, subs, is_ladder, is_door, is_key, count in card_configs:
+        for name, ops, subs, is_ladder, is_door, is_key, is_rockfall, count in card_configs:
             openings = CardOpenings(up=ops[0], down=ops[1], left=ops[2], right=ops[3])
             card = TunnelCard(
                 name=name, openings=openings, subnetworks=subs if subs else None,
-                is_ladder=is_ladder, is_door=is_door, is_key=is_key, color=ConsoleColor.RESET
+                is_ladder=is_ladder, is_door=is_door, is_key=is_key, color=ConsoleColor.RESET, is_rockfall= is_rockfall
             )
             for _ in range(count):
                 deck.append(card.copy() if hasattr(card, 'copy') else copy.deepcopy(card))
@@ -122,6 +123,10 @@ class Game:
                 target_card = self.board.get_card(x, y)
                 target_card.is_locked = False
                 print(f"Игрок {self.current_player} открыл дверь ключом на ({x}, {y})!")
+                hand.pop(card_idx)
+
+            elif card_to_play.is_rockfall:
+                self.board.remove_card(x,y)
                 hand.pop(card_idx)
 
             else:
@@ -229,3 +234,66 @@ class Game:
                     line += "  .  "
             print(line)
         print("\n")
+
+    # ... внутри класса Game ...
+
+    def discard_cards(self, player_idx: int, card_indices: List[int]):
+        """Сбрасывает выбранные карты и добирает новые."""
+        hand = self.hands[player_idx]
+
+        # Сортируем индексы по убыванию, чтобы при удалении они не смещались
+        for idx in sorted(card_indices, reverse=True):
+            if 0 <= idx < len(hand):
+                hand.pop(idx)
+
+        # Добираем до стандартного размера (например, 6 карт)
+        while len(hand) < 6 and self.deck:
+            hand.append(self.deck.pop())
+
+        self.current_player = 1 - self.current_player
+
+    def play_action_card(self, hand_idx: int, x: int, y: int):
+        """Специфический метод для экшен-карт (сейчас только Ключ)."""
+        hand = self.hands[self.current_player]
+        card = hand[hand_idx]
+
+        # Проверяем валидность через board (для ключа это наведение на дверь)
+        if self.board.is_move_valid(x, y, card, (0, 0), self.player_colors[self.current_player]):
+            # Используем существующую логику play_turn
+            self.play_turn(hand_idx, x, y)
+            return True
+        return False
+
+    def play_key(self, x: int, y: int, new_card: TunnelCard, player_start_pos: Tuple[int, int],
+                      player_color: str) -> bool:
+        target_card = self.grid.get((x, y))
+        if not target_card or not target_card.is_door:
+            return False
+
+        if target_card.color == player_color or not target_card.is_locked:
+            return False
+
+        if not self._check_path_connectivity(x, y, player_start_pos, player_color):
+            return False
+
+        # self.play_turn()
+
+    def play_rockfall(self, hand_idx: int, x: int, y: int):
+        """Удаляет карту с поля."""
+        hand = self.hands[self.current_player]
+        card = hand[hand_idx]
+
+        start_pos = self.start_positions[self.current_player]
+        color = self.player_colors[self.current_player]
+
+        if self.board.is_move_valid(x, y, card, start_pos, color):
+            # 1. Удаляем карту из сетки поля
+            del self.board.grid[(x, y)]
+            # 2. Удаляем карту из руки и добираем
+            hand.pop(hand_idx)
+            if self.deck:
+                hand.append(self.deck.pop())
+            # 3. Переход хода
+            self.current_player = 1 - self.current_player
+            return True
+        return False

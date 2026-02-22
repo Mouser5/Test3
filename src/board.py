@@ -1,5 +1,5 @@
-from typing import Dict, Tuple, Optional, Set, List
-from cards import TunnelCard, Direction, ConsoleColor
+from typing import Dict, Tuple, Optional, Set
+from cards import TunnelCard, Direction
 
 
 class GameBoard:
@@ -8,6 +8,9 @@ class GameBoard:
 
     def place_card(self, x: int, y: int, card: TunnelCard):
         self.grid[(x, y)] = card
+
+    def remove_card(self, x: int, y:int):
+        self.grid.pop((x,y))
 
     def get_card(self, x: int, y: int) -> Optional[TunnelCard]:
         return self.grid.get((x, y))
@@ -38,6 +41,13 @@ class GameBoard:
 
                 # Проверяем, есть ли к двери путь (BFS должен дойти до координат двери)
             return self._check_path_connectivity(x, y, player_start_pos, player_color)
+
+        if new_card.is_rockfall:
+            target_card=self.grid.get((x,y))
+            if not target_card or target_card.name.__contains__("Start"):
+                # print("Нельзя ломать начальную точку")
+                return False
+            return True
 
         # СЦЕНАРИЙ 1: Обычная установка (клетка должна быть пустой)
         if (x, y) in self.grid:
@@ -109,9 +119,6 @@ class GameBoard:
 
     def _bfs_reachable_states(self, start_nodes: Set[Tuple[int, int]], player_color: str) -> Set[
         Tuple[int, int, Optional[Direction]]]:
-        """
-        BFS, учитывающий цвет игрока и ДВЕРИ.
-        """
         visited = set()
         queue = []
 
