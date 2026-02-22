@@ -64,7 +64,7 @@ class Game:
             # ("Bridge", (True, True, True, True), [{Direction.LEFT, Direction.RIGHT}, {Direction.DOWN, Direction.UP}], None, None, None, 10),
 
             # Перекрестки и туннели
-            ("Crossroad", (True, True, True, True), None, None, None, None, None, 8),
+            ("Crossroad", (True, True, True, True), None, None, None, None, None, 18),
             # ("T-Junction", (True, True, True, False), None, 10),
             # ("Straight Vertical", (True, True, False, False), None, 3),
             # ("Straight Horizontal", (False, False, True, True), None, 10),
@@ -264,36 +264,60 @@ class Game:
             return True
         return False
 
-    def play_key(self, x: int, y: int, new_card: TunnelCard, player_start_pos: Tuple[int, int],
-                      player_color: str) -> bool:
-        target_card = self.grid.get((x, y))
-        if not target_card or not target_card.is_door:
-            return False
-
-        if target_card.color == player_color or not target_card.is_locked:
-            return False
-
-        if not self._check_path_connectivity(x, y, player_start_pos, player_color):
-            return False
-
-        # self.play_turn()
-
-    def play_rockfall(self, hand_idx: int, x: int, y: int):
-        """Удаляет карту с поля."""
-        hand = self.hands[self.current_player]
-        card = hand[hand_idx]
-
-        start_pos = self.start_positions[self.current_player]
-        color = self.player_colors[self.current_player]
-
-        if self.board.is_move_valid(x, y, card, start_pos, color):
-            # 1. Удаляем карту из сетки поля
-            del self.board.grid[(x, y)]
-            # 2. Удаляем карту из руки и добираем
-            hand.pop(hand_idx)
-            if self.deck:
-                hand.append(self.deck.pop())
-            # 3. Переход хода
-            self.current_player = 1 - self.current_player
+    def is_game_over(self) -> bool:
+        """Проверяет, завершена ли игра по правилам."""
+        # Условие 1: Открыты все 6 карт золота (колода золота пуста)
+        if not self.gold_deck:
             return True
+
+        # Условие 2: Колода пуста И у обоих игроков нет карт на руках
+        if not self.deck and not self.hands[0] and not self.hands[1]:
+            return True
+
         return False
+
+# считается в момент вскрытия
+
+    # def calculate_scores(self) -> Dict[int, int]:
+    #     """Считает очки (сумму золота) для каждого игрока."""
+    #     scores = {0: 0, 1: 0}
+    #
+    #     # Проходим по всем картам на игровом поле
+    #     for (x, y), card in self.board.grid.items():
+    #         # Если карта является открытым золотом (gold_value > 0)
+    #         if card.is_gold and card.gold_value > 0:
+    #             # Чей цвет у карты, тому и идут очки
+    #             if card.color == self.player_colors[0]:
+    #                 scores[0] += card.gold_value
+    #             elif card.color == self.player_colors[1]:
+    #                 scores[1] += card.gold_value
+    #
+    #     return scores
+
+    def calculate_scores(self) -> Dict[int, int]:
+        """Считает очки (сумму золота), только если к золоту остался непрерывный путь."""
+        scores = {0: 0, 1: 0}
+
+        # Проходим по всем картам на игровом поле
+        for (x, y), card in self.board.grid.items():
+            # Если карта является открытым золотом (gold_value > 0)
+            if card.is_gold and card.gold_value > 0:
+
+                # Определяем, чей жетон лежит на золоте
+                owner = None
+                if card.color == self.player_colors[0]:
+                    owner = 0
+                elif card.color == self.player_colors[1]:
+                    owner = 1
+
+                if owner is not None:
+                    start_pos = self.start_positions[owner]
+                    player_color = self.player_colors[owner]
+
+                    # [NEW] Жесткая проверка: остался ли путь от старта/лестницы до этого золота?
+                    if self.board._check_path_connectivity(x, y, start_pos, player_color):
+                        scores[owner] += card.gold_value
+                    else:
+                        print(f"Золото на ({x}, {y}) потеряно для Игрока {owner}: путь был разрушен!")
+
+        return scores

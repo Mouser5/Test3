@@ -4,6 +4,24 @@ from src.cards import ConsoleColor
 
 def interactive_loop(game: Game):
     while True:
+        if game.is_game_over():
+            print("\n" + "=" * 50)
+            print(f"{ConsoleColor.YELLOW}ИГРА ОКОНЧЕНА!{ConsoleColor.RESET}")
+            game.print_state()
+
+            scores = game.calculate_scores()
+            print("ИТОГОВЫЙ СЧЕТ:")
+            print(f"Игрок 0 (Синий): {scores[0]} слитков")
+            print(f"Игрок 1 (Зеленый): {scores[1]} слитков")
+
+            if scores[0] > scores[1]:
+                print(f"{ConsoleColor.BLUE}ПОБЕДИЛ ИГРОК 0!{ConsoleColor.RESET}")
+            elif scores[1] > scores[0]:
+                print(f"{ConsoleColor.GREEN}ПОБЕДИЛ ИГРОК 1!{ConsoleColor.RESET}")
+            else:
+                print("НИЧЬЯ!")
+            break
+
         print("\n" + "=" * 50)
         game.print_state()
 
