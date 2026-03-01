@@ -1,8 +1,17 @@
 import copy
 import random
-from typing import List, Dict, Tuple
-from cards import TunnelCard, CardOpenings, ConsoleColor, Direction
+from dataclasses import dataclass
+from typing import List, Dict, Tuple, Optional, Set
+from cards import (Card, PathCard, TunnelCard, StartCard, DoorCard, GoldCard, ActionCard,
+                   ActionType, EquipmentType, CardOpenings, Direction, LadderCard)
 from board import GameBoard
+
+
+@dataclass
+class TurnResult:
+    success: bool
+    message: str
+    revealed_gold: Optional[int] = None
 
 
 class Game:
@@ -12,32 +21,27 @@ class Game:
         self.current_player = 0
 
         self.start_positions = {0: (-1, 0), 1: (1, 0)}
-        self.player_colors = {0: ConsoleColor.BLUE, 1: ConsoleColor.GREEN}
+
+        # Состояние инвентаря: какие предметы сломаны у каждого игрока
+        self.broken_equipments: Dict[int, Set[EquipmentType]] = {0: set(), 1: set()}
 
         self.deck = self._create_deck()
         self.gold_deck = self._create_gold_deck()
-        self.hands: Dict[int, List[TunnelCard]] = {0: [], 1: []}
+        self.hands: Dict[int, List[Card]] = {0: [], 1: []}
 
-        start_blue = TunnelCard("Start Blue", CardOpenings(True, True, True, True), color=self.player_colors[0])
+        start_blue = StartCard("Start Blue", owner_id=0, openings=CardOpenings(True, True, True, True))
         self.board.place_card(*self.start_positions[0], start_blue)
 
-        start_green = TunnelCard("Start Green", CardOpenings(True, True, True, True), color=self.player_colors[1])
+        start_green = StartCard("Start Green", owner_id=1, openings=CardOpenings(True, True, True, True))
         self.board.place_card(*self.start_positions[1], start_green)
 
         self._place_gold_cards()
         self._deal_initial_cards()
 
-    def _create_gold_deck(self) -> List[TunnelCard]:
+    def _create_gold_deck(self) -> List[GoldCard]:
         deck = []
-        values = [1, 1, 2, 2, 3, 3]
-        for val in values:
-            deck.append(TunnelCard(
-                name=f"Gold_{val}",
-                openings=CardOpenings(True, True, True, True),
-                is_gold=True,
-                gold_value=val,
-                color=ConsoleColor.YELLOW
-            ))
+        for val in [1, 1, 2, 2, 3, 3]:
+            deck.append(GoldCard(name=f"Gold_{val}", openings=CardOpenings(True, True, True, True), gold_value=val))
         random.shuffle(deck)
         return deck
 
@@ -45,56 +49,72 @@ class Game:
         if positions is None:
             positions = [(-2, -5), (0, -5), (2, -5), (-1, -7), (1, -7), (0, -9)]
         for i, (x, y) in enumerate(positions):
-            gold_card = TunnelCard(
-                f"Hidden_Gold_{i}",
-                CardOpenings(True, True, True, True),
-                is_gold=True,
-                color=ConsoleColor.YELLOW
-            )
-            self.board.place_card(x, y, gold_card)
+            self.board.place_card(x, y, GoldCard(f"Hidden_Gold_{i}", CardOpenings(True, True, True, True)))
 
-    def _create_deck(self) -> List[TunnelCard]:
-        # (Название, Openings(U, D, L, R), Subnetworks, is_ladder, is_door, is_key, count)
-        card_configs = [
-            # (Название, Openings(U, D, L, R), Subnetworks, Количество)
-            #("Ladder", (False, True, True, False), None, True, False, False, 4),
-            # ("Split T Vertical", (True, True, True, True), [{Direction.UP}, {Direction.DOWN, Direction.LEFT, Direction.RIGHT}],None, None, None, 10),
-            # ("Split T Left", (True, True, True, True),
-            #  [{Direction.LEFT}, {Direction.DOWN, Direction.UP, Direction.RIGHT}], 10),
-            # ("Bridge", (True, True, True, True), [{Direction.LEFT, Direction.RIGHT}, {Direction.DOWN, Direction.UP}], None, None, None, 10),
+    def _create_deck(self) -> List[Card]:
+        deck = []
 
-            # Перекрестки и туннели
-            ("Crossroad", (True, True, True, True), None, None, None, None, None, 18),
-            # ("T-Junction", (True, True, True, False), None, 10),
-            # ("Straight Vertical", (True, True, False, False), None, 3),
-            # ("Straight Horizontal", (False, False, True, True), None, 10),
-            # ("Corner LD", (False, True, True, False), None, 10),
-            # ("Corner UL", (True, False, True, False), None, 10),
-            #
-            # # Тупики
-            # ("Dead End Up", (True, False, False, False), None, 10),
-            # ("Dead End Left", (False, False, True, False), None, 10),
+        # --- 1. ОБЫЧНЫЕ ТУННЕЛИ (TunnelCard) ---
+        # Формат: (Название, (Up, Down, Left, Right), Количество)
+        tunnel_configs = [
+            ("Crossroad", (True, True, True, True), 10),
+            ("T-Junction", (True, True, True, False), 10),
+            ("Straight Vertical", (True, True, False, False), 4),
+            ("Straight Horizontal", (False, False, True, True), 4),
+            ("Corner LD", (False, True, True, False), 5),
+            ("Corner UL", (True, False, True, False), 5),
 
-            # [NEW] Двери
-            # Дверь - это прямой туннель (вертикальный или горизонтальный, зависит от поворота),
-            # который блокирует проход. Сделаем их "прямыми" по умолчанию.
-            # ("Door", (True, True, False, False), None, False, True, False, 4),
-
-            # [NEW] Ключи
-            # У ключа нет "выходов", это карта действия.
-            # ("Key", (False, False, False, False), None, False, False, True, 4),
-            ("Boom", (False, False, False, False), None, None, None,None, True, 4),
+            ("Dead End Up", (True, False, False, False), 4),
+            ("Dead End Cross", (True, True, True, True), 2)  # Перекресток, который не соединяется (тупик)
         ]
 
-        deck = []
-        for name, ops, subs, is_ladder, is_door, is_key, is_rockfall, count in card_configs:
-            openings = CardOpenings(up=ops[0], down=ops[1], left=ops[2], right=ops[3])
-            card = TunnelCard(
-                name=name, openings=openings, subnetworks=subs if subs else None,
-                is_ladder=is_ladder, is_door=is_door, is_key=is_key, color=ConsoleColor.RESET, is_rockfall= is_rockfall
-            )
+        for name, ops, count in tunnel_configs:
             for _ in range(count):
-                deck.append(card.copy() if hasattr(card, 'copy') else copy.deepcopy(card))
+                deck.append(TunnelCard(
+                    name=name,
+                    openings=CardOpenings(up=ops[0], down=ops[1], left=ops[2], right=ops[3])
+                ))
+
+        # --- 2. СЛОЖНЫЕ ТУННЕЛИ (С подсетями / subnetworks) ---
+        # Мост: Вертикальный и горизонтальный пути не пересекаются
+        subnetwork_configs = [
+            ("Bridge", (True, True, True, True),[{Direction.UP, Direction.DOWN}, {Direction.LEFT, Direction.RIGHT}], 4),
+            ("Double Corner", (True, True, True, True),[{Direction.UP, Direction.LEFT}, {Direction.DOWN, Direction.RIGHT}], 4),
+            ("Split T Vertical", (True, True, True, True),[{Direction.UP}, {Direction.DOWN, Direction.LEFT, Direction.RIGHT}], 4),
+            ("Split T Left", (True, True, True, True),[{Direction.LEFT}, {Direction.DOWN, Direction.UP, Direction.RIGHT}], 4),
+
+        ]
+        for name, ops, subs, count in subnetwork_configs:
+            for _ in range(count):
+                deck.append(TunnelCard(
+                    name=name,
+                    openings=CardOpenings(up=ops[0], down=ops[1], left=ops[2], right=ops[3]),
+                    subnetworks=subs
+                ))
+
+        # --- 3. ДВЕРИ (DoorCard) ---
+        # 3 синие и 3 зеленые двери. Представляют собой прямой туннель.
+        for _ in range(3):
+            deck.append(DoorCard("Blue Door", CardOpenings(True, True, False, False), door_owner_id=0))
+            deck.append(DoorCard("Green Door", CardOpenings(True, True, False, False), door_owner_id=1))
+
+        # --- 4. ЛЕСТНИЦЫ (LadderCard) ---
+        for _ in range(4):
+            deck.append(LadderCard("Ladder", CardOpenings(False, True, True, False)))
+
+        # --- 5. КАРТЫ ДЕЙСТВИЙ (ActionCard) ---
+        # Обвалы и Ключи
+        for _ in range(3): deck.append(ActionCard("Boom", action_type=ActionType.ROCKFALL))
+        for _ in range(3): deck.append(ActionCard("Key", action_type=ActionType.KEY))
+
+        # Карты поломки и починки инвентаря
+        for eq_type in EquipmentType:
+            for _ in range(3):
+                deck.append(
+                    ActionCard(f"Сломать: {eq_type.value}", action_type=ActionType.SABOTAGE, equipment_type=eq_type))
+            for _ in range(3):
+                deck.append(
+                    ActionCard(f"Починить: {eq_type.value}", action_type=ActionType.REPAIR, equipment_type=eq_type))
 
         random.shuffle(deck)
         return deck
@@ -104,220 +124,136 @@ class Game:
             for _ in range(6):
                 if self.deck: self.hands[p].append(self.deck.pop())
 
-    def play_turn(self, card_idx: int, x: int, y: int, rotate_before_playing: bool = False):
+    def play_turn(self, card_idx: int, x: Optional[int] = None, y: Optional[int] = None,
+                  target_player: Optional[int] = None, rotate_before_playing: bool = False) -> TurnResult:
         hand = self.hands[self.current_player]
-        if card_idx < 0 or card_idx >= len(hand):
-            print("Ошибка: Неверный индекс карты.")
-            return
+        if card_idx < 0 or card_idx >= len(hand): return TurnResult(False, "Неверный индекс карты.")
 
         card_to_play = hand[card_idx]
-        current_color = self.player_colors[self.current_player]
+        revealed_gold = None
+        msg = ""
 
-        if rotate_before_playing and not card_to_play.is_key:
-            card_to_play.rotate()
+        # --- ОБРАБОТКА КАРТ ТУННЕЛЕЙ ---
+        if isinstance(card_to_play, PathCard):
+            if x is None or y is None: return TurnResult(False, "Нужны координаты для туннеля.")
 
-        if self.board.is_move_valid(x, y, card_to_play, self.start_positions[self.current_player], current_color):
+            # ВАЖНО: Проверка на сломанный инвентарь
+            if self.broken_equipments[self.current_player]:
+                return TurnResult(False, "Нельзя строить туннели, пока ваш инвентарь сломан!")
 
-            # ЛОГИКА КЛЮЧА
-            if card_to_play.is_key:
-                target_card = self.board.get_card(x, y)
-                target_card.is_locked = False
-                print(f"Игрок {self.current_player} открыл дверь ключом на ({x}, {y})!")
+            if rotate_before_playing: card_to_play.rotate()
+
+            if not self.board.is_move_valid(x, y, card_to_play, self.start_positions[self.current_player],
+                                            self.current_player):
+                if rotate_before_playing: card_to_play.rotate()
+                return TurnResult(False, "Ход недопустим по правилам геометрии.")
+
+            card_to_play.owner_id = self.current_player
+            self.board.place_card(x, y, card_to_play)
+            hand.pop(card_idx)
+            revealed_gold = self._check_and_reveal_gold(x, y, card_to_play)
+            msg = f"Игрок {self.current_player} построил туннель на ({x}, {y})"
+
+        # --- ОБРАБОТКА КАРТ ДЕЙСТВИЙ ---
+        elif isinstance(card_to_play, ActionCard):
+            # Карты на поле (Ключ, Обвал)
+            if card_to_play.action_type in [ActionType.KEY, ActionType.ROCKFALL]:
+                if x is None or y is None: return TurnResult(False, "Укажите координаты на поле.")
+                if not self.board.is_move_valid(x, y, card_to_play, self.start_positions[self.current_player],
+                                                self.current_player):
+                    return TurnResult(False, "Недопустимое применение карты действия к полю.")
+
+                if card_to_play.action_type == ActionType.KEY:
+                    self.board.get_card(x, y).is_locked = False
+                    msg = f"Игрок {self.current_player} открыл дверь ключом на ({x}, {y})!"
+                elif card_to_play.action_type == ActionType.ROCKFALL:
+                    self.board.remove_card(x, y)
+                    msg = f"Игрок {self.current_player} устроил обвал на ({x}, {y})!"
                 hand.pop(card_idx)
 
-            elif card_to_play.is_rockfall:
-                self.board.remove_card(x,y)
+            # Карты на игроков (Поломка, Починка)
+            elif card_to_play.action_type in [ActionType.SABOTAGE, ActionType.REPAIR]:
+                if target_player is None: return TurnResult(False, "Нужно указать цель (игрока).")
+
+                eq = card_to_play.equipment_type
+                if card_to_play.action_type == ActionType.SABOTAGE:
+                    if eq in self.broken_equipments[target_player]:
+                        return TurnResult(False, f"У игрока {target_player} уже сломан(а) {eq.value}.")
+                    self.broken_equipments[target_player].add(eq)
+                    msg = f"Игрок {self.current_player} сломал {eq.value} игроку {target_player}!"
+
+                elif card_to_play.action_type == ActionType.REPAIR:
+                    if eq not in self.broken_equipments[target_player]:
+                        return TurnResult(False, f"У игрока {target_player} не сломан(а) {eq.value}.")
+                    self.broken_equipments[target_player].remove(eq)
+                    msg = f"Игрок {self.current_player} починил {eq.value} игроку {target_player}!"
                 hand.pop(card_idx)
 
-            else:
-                # ОБЫЧНАЯ КАРТА
-                card_to_play.color = current_color
-                self.board.place_card(x, y, card_to_play)
-                hand.pop(card_idx)
+        # Добор карты и смена хода
+        if self.deck: hand.append(self.deck.pop())
+        self.current_player = 1 - self.current_player
+        return TurnResult(True, msg, revealed_gold)
 
-                card_type = "ДВЕРЬ" if card_to_play.is_door else "карту"
-                print(f"Игрок {self.current_player} поставил {card_type} {card_to_play.name} на ({x}, {y})")
-                self._check_and_reveal_gold(x, y, card_to_play)
+    def discard_cards(self, player_idx: int, card_indices: List[int]) -> TurnResult:
+        hand = self.hands[player_idx]
+        if not (1 <= len(card_indices) <= 2):
+            return TurnResult(False, "Можно сбросить только 1 или 2 карты.")
 
-            if self.deck: hand.append(self.deck.pop())
-            self.current_player = 1 - self.current_player
-        else:
-            print("Ошибка: Ход недопустим.")
-            if rotate_before_playing and not card_to_play.is_key:
-                card_to_play.rotate()
+        for idx in sorted(card_indices, reverse=True):
+            if 0 <= idx < len(hand): hand.pop(idx)
 
-    def _check_and_reveal_gold(self, x: int, y: int, placed_card: TunnelCard):
+        while len(hand) < 6 and self.deck:
+            hand.append(self.deck.pop())
+
+        self.current_player = 1 - self.current_player
+        return TurnResult(True, f"Сброшено карт: {len(card_indices)}.")
+
+    def discard_two_to_repair(self, player_idx: int, card_indices: List[int], equip_type: EquipmentType) -> TurnResult:
+        if len(card_indices) != 2:
+            return TurnResult(False, "Для экстренной починки нужно ровно 2 карты.")
+        if equip_type not in self.broken_equipments[player_idx]:
+            return TurnResult(False, "Этот предмет не сломан.")
+
+        hand = self.hands[player_idx]
+        for idx in sorted(card_indices, reverse=True):
+            hand.pop(idx)
+
+        # Починка
+        self.broken_equipments[player_idx].remove(equip_type)
+
+        # Важно: по правилам после сброса 2 карт для починки берется только 1
+        if self.deck: hand.append(self.deck.pop())
+
+        self.current_player = 1 - self.current_player
+        return TurnResult(True, f"Игрок пожертвовал 2 картами и починил {equip_type.value}.")
+
+    def _check_and_reveal_gold(self, x: int, y: int, placed_card: PathCard) -> Optional[int]:
+        revealed_amount = None
         for direction in Direction:
-            if not placed_card.openings.get_opening(direction):
-                continue
-
-            if placed_card.is_door and placed_card.is_locked:
-                continue
+            if not placed_card.openings.get_opening(direction): continue
+            if isinstance(placed_card, DoorCard) and placed_card.is_locked: continue
 
             dx, dy = direction.value
             nx, ny = x + dx, y + dy
             neighbor = self.board.get_card(nx, ny)
 
-            if neighbor and neighbor.is_gold and neighbor.gold_value == 0:
+            if neighbor and isinstance(neighbor, GoldCard) and not neighbor.is_revealed:
                 if self.gold_deck:
                     real_gold_card = self.gold_deck.pop()
-                    real_gold_card.color = self.player_colors[self.current_player]
+                    real_gold_card.owner_id = self.current_player
+                    real_gold_card.is_revealed = True
                     self.board.place_card(nx, ny, real_gold_card)
-                    print(f"✨ ЗОЛОТО НАЙДЕНО! В сундуке {real_gold_card.gold_value} слитков! ✨")
-                else:
-                    print("Золото кончилось :(")
-
-    def get_possible_moves_at(self, x: int, y: int) -> List[Tuple[int, TunnelCard, bool]]:
-        hand = self.hands[self.current_player]
-        possible_moves = []
-        start_pos = self.start_positions[self.current_player]
-        current_color = self.player_colors[self.current_player]
-
-        existing_card = self.board.get_card(x, y)
-
-        for idx, card in enumerate(hand):
-            if card.is_key:
-                if existing_card and existing_card.is_door:
-                    if self.board.is_move_valid(x, y, card, start_pos, current_color):
-                        possible_moves.append((idx, card, False))
-                continue
-
-            if existing_card: continue
-
-            temp_color = card.color
-            card.color = current_color
-
-            if self.board.is_move_valid(x, y, card, start_pos, current_color):
-                possible_moves.append((idx, card, False))
-
-            rotated_copy = card.get_rotated_copy()
-            rotated_copy.color = current_color
-
-            if rotated_copy.openings != card.openings or rotated_copy.subnetworks != card.subnetworks:
-                if self.board.is_move_valid(x, y, rotated_copy, start_pos, current_color):
-                    possible_moves.append((idx, rotated_copy, True))
-
-            card.color = temp_color
-
-        return possible_moves
-
-    def print_state(self):
-        print("\nПоле:")
-        min_x, max_x = -3, 3
-        min_y, max_y = -10, 1
-
-        keys = self.board.grid.keys()
-        if keys:
-            xs, ys = [k[0] for k in keys], [k[1] for k in keys]
-            min_x, max_x = min(min_x, min(xs) - 1), max(max_x, max(xs) + 1)
-            min_y, max_y = min(min_y, min(ys) - 1), max(max_y, max(ys) + 1)
-
-        header = "    "
-        for x in range(min_x, max_x + 1):
-            if len(str(x)) == 1:
-                header += f"{x:^5}"
-            else:
-                header += f"{x:^4} "
-        print(header)
-        print("    " + "_" * (len(header) - 4))
-
-        for y in range(max_y, min_y - 1, -1):
-            if len(str(y)) <= 2:
-                line = f"{y:2} |"
-            else:
-                line = f"{y:2}|"
-            for x in range(min_x, max_x + 1):
-                card = self.board.get_card(x, y)
-                if card:
-                    line += f" {str(card)} "
-                else:
-                    line += "  .  "
-            print(line)
-        print("\n")
-
-    # ... внутри класса Game ...
-
-    def discard_cards(self, player_idx: int, card_indices: List[int]):
-        """Сбрасывает выбранные карты и добирает новые."""
-        hand = self.hands[player_idx]
-
-        # Сортируем индексы по убыванию, чтобы при удалении они не смещались
-        for idx in sorted(card_indices, reverse=True):
-            if 0 <= idx < len(hand):
-                hand.pop(idx)
-
-        # Добираем до стандартного размера (например, 6 карт)
-        while len(hand) < 6 and self.deck:
-            hand.append(self.deck.pop())
-
-        self.current_player = 1 - self.current_player
-
-    def play_action_card(self, hand_idx: int, x: int, y: int):
-        """Специфический метод для экшен-карт (сейчас только Ключ)."""
-        hand = self.hands[self.current_player]
-        card = hand[hand_idx]
-
-        # Проверяем валидность через board (для ключа это наведение на дверь)
-        if self.board.is_move_valid(x, y, card, (0, 0), self.player_colors[self.current_player]):
-            # Используем существующую логику play_turn
-            self.play_turn(hand_idx, x, y)
-            return True
-        return False
+                    revealed_amount = real_gold_card.gold_value
+        return revealed_amount
 
     def is_game_over(self) -> bool:
-        """Проверяет, завершена ли игра по правилам."""
-        # Условие 1: Открыты все 6 карт золота (колода золота пуста)
-        if not self.gold_deck:
-            return True
-
-        # Условие 2: Колода пуста И у обоих игроков нет карт на руках
-        if not self.deck and not self.hands[0] and not self.hands[1]:
-            return True
-
+        if not self.gold_deck: return True
+        if not self.deck and not self.hands[0] and not self.hands[1]: return True
         return False
 
-# считается в момент вскрытия
-
-    # def calculate_scores(self) -> Dict[int, int]:
-    #     """Считает очки (сумму золота) для каждого игрока."""
-    #     scores = {0: 0, 1: 0}
-    #
-    #     # Проходим по всем картам на игровом поле
-    #     for (x, y), card in self.board.grid.items():
-    #         # Если карта является открытым золотом (gold_value > 0)
-    #         if card.is_gold and card.gold_value > 0:
-    #             # Чей цвет у карты, тому и идут очки
-    #             if card.color == self.player_colors[0]:
-    #                 scores[0] += card.gold_value
-    #             elif card.color == self.player_colors[1]:
-    #                 scores[1] += card.gold_value
-    #
-    #     return scores
-
     def calculate_scores(self) -> Dict[int, int]:
-        """Считает очки (сумму золота), только если к золоту остался непрерывный путь."""
         scores = {0: 0, 1: 0}
-
-        # Проходим по всем картам на игровом поле
         for (x, y), card in self.board.grid.items():
-            # Если карта является открытым золотом (gold_value > 0)
-            if card.is_gold and card.gold_value > 0:
-
-                # Определяем, чей жетон лежит на золоте
-                owner = None
-                if card.color == self.player_colors[0]:
-                    owner = 0
-                elif card.color == self.player_colors[1]:
-                    owner = 1
-
-                if owner is not None:
-                    start_pos = self.start_positions[owner]
-                    player_color = self.player_colors[owner]
-
-                    # [NEW] Жесткая проверка: остался ли путь от старта/лестницы до этого золота?
-                    if self.board._check_path_connectivity(x, y, start_pos, player_color):
-                        scores[owner] += card.gold_value
-                    else:
-                        print(f"Золото на ({x}, {y}) потеряно для Игрока {owner}: путь был разрушен!")
-
+            if isinstance(card, GoldCard) and card.is_revealed and card.owner_id is not None:
+                scores[card.owner_id] += card.gold_value
         return scores

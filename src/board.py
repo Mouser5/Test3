@@ -1,18 +1,17 @@
 from typing import Dict, Tuple, Optional, Set
-from cards import TunnelCard, Direction
-
+from cards import Card, PathCard, StartCard, GoldCard, LadderCard, DoorCard, ActionCard, ActionType, Direction
 
 class GameBoard:
     def __init__(self):
-        self.grid: Dict[Tuple[int, int], TunnelCard] = {}
+        self.grid: Dict[Tuple[int, int], Card] = {}
 
-    def place_card(self, x: int, y: int, card: TunnelCard):
+    def place_card(self, x: int, y: int, card: Card):
         self.grid[(x, y)] = card
 
-    def remove_card(self, x: int, y:int):
-        self.grid.pop((x,y))
+    def remove_card(self, x: int, y: int):
+        self.grid.pop((x, y), None)
 
-    def get_card(self, x: int, y: int) -> Optional[TunnelCard]:
+    def get_card(self, x: int, y: int) -> Optional[Card]:
         return self.grid.get((x, y))
 
     def _get_opposite_dir(self, direction: Direction) -> Direction:
@@ -21,36 +20,25 @@ class GameBoard:
         if direction == Direction.LEFT: return Direction.RIGHT
         return Direction.LEFT
 
-    def is_move_valid(self, x: int, y: int, new_card: TunnelCard, player_start_pos: Tuple[int, int],
-                      player_color: str) -> bool:
-        """
-        Обрабатывает два сценария:
-        1. Размещение карты туннеля/двери/лестницы на пустую клетку.
-        2. Использование КЛЮЧА на клетку с чужой закрытой ДВЕРЬЮ.
-        """
-
-        # СЦЕНАРИЙ 2: Использование ключа
-        if new_card.is_key:
+    def is_move_valid(self, x: int, y: int, new_card: Card, player_start_pos: Tuple[int, int], player_id: int) -> bool:
+        # СЦЕНАРИЙ: Карты действий (Ключ, Обвал)
+        if isinstance(new_card, ActionCard):
             target_card = self.grid.get((x, y))
-            if not target_card or not target_card.is_door:
+            if not target_card:
                 return False
 
-            # Ключом можно открыть только чужую закрытую дверь
-            if target_card.color == player_color or not target_card.is_locked:
-                return False
+            if new_card.action_type == ActionType.KEY:
+                if not isinstance(target_card, DoorCard): return False
+                if target_card.door_owner_id == player_id or not target_card.is_locked: return False
+                return self._check_path_connectivity(x, y, player_start_pos, player_id)
 
-                # Проверяем, есть ли к двери путь (BFS должен дойти до координат двери)
-            return self._check_path_connectivity(x, y, player_start_pos, player_color)
+            if new_card.action_type == ActionType.ROCKFALL:
+                if isinstance(target_card, StartCard) or isinstance(target_card, GoldCard): return False
+                return True
+            return False
 
-        if new_card.is_rockfall:
-            target_card=self.grid.get((x,y))
-            if not target_card or target_card.name.__contains__("Start"):
-                # print("Нельзя ломать начальную точку")
-                return False
-            return True
-
-        # СЦЕНАРИЙ 1: Обычная установка (клетка должна быть пустой)
-        if (x, y) in self.grid:
+        # СЦЕНАРИЙ: Установка туннелей (клетка должна быть пустой)
+        if not isinstance(new_card, PathCard) or (x, y) in self.grid:
             return False
 
         has_neighbor = False
@@ -59,17 +47,17 @@ class GameBoard:
 
         self.grid[(x, y)] = new_card
 
-        # 1. Проверка соседей (Geometry check)
+        # Проверка соседей (Geometry check)
         for direction in Direction:
             dx, dy = direction.value
             neighbor_pos = (x + dx, y + dy)
             neighbor_card = self.grid.get(neighbor_pos)
 
-            if neighbor_card:
+            if neighbor_card and isinstance(neighbor_card, PathCard):
                 has_neighbor = True
 
                 # Правило лестницы: нельзя рядом с золотом/стартом
-                if new_card.is_ladder and (neighbor_card.is_gold or neighbor_card.name.__contains__("Start ")):
+                if isinstance(new_card, LadderCard) and (isinstance(neighbor_card, GoldCard) or isinstance(neighbor_card, StartCard)):
                     valid_geometry = False
                     break
 
@@ -77,48 +65,40 @@ class GameBoard:
                 opposite_dir = self._get_opposite_dir(direction)
                 neighbor_opening = neighbor_card.openings.get_opening(opposite_dir)
 
-                if not (neighbor_card.is_gold and neighbor_card.gold_value == 0):
+                if not (isinstance(neighbor_card, GoldCard) and not neighbor_card.is_revealed):
                     if my_opening != neighbor_opening:
                         valid_geometry = False
                         break
 
-                # Фикс: карта должна соединяться именно туннелем, а не просто "глухими стенами"
                 if my_opening and neighbor_opening:
                     has_tunnel_connection = True
 
-        # Откатываем сетку, если геометрия невалидна или карта вообще ни с чем не стыкуется туннелями
         if not has_neighbor or not valid_geometry or not has_tunnel_connection:
             del self.grid[(x, y)]
             return False
 
-        # 2. Проверка пути (Connectivity check)
-        if new_card.is_ladder:
-            # Лестнице не нужен непрерывный путь от старта, она сама становится стартом
+        # Проверка пути (Connectivity check)
+        if isinstance(new_card, LadderCard):
             del self.grid[(x, y)]
             return True
 
-        is_connected = self._check_path_connectivity(x, y, player_start_pos, player_color)
-
+        is_connected = self._check_path_connectivity(x, y, player_start_pos, player_id)
         del self.grid[(x, y)]
         return is_connected
 
-    def _check_path_connectivity(self, target_x: int, target_y: int, player_start_pos: Tuple[int, int],
-                                 player_color: str) -> bool:
+    def _check_path_connectivity(self, target_x: int, target_y: int, player_start_pos: Tuple[int, int], player_id: int) -> bool:
         start_nodes = {player_start_pos}
         for pos, card in self.grid.items():
-            if card.is_ladder and card.color == player_color and pos != (target_x, target_y):
+            if isinstance(card, LadderCard) and card.owner_id == player_id and pos != (target_x, target_y):
                 start_nodes.add(pos)
 
-        reachable_states = self._bfs_reachable_states(start_nodes, player_color)
-
+        reachable_states = self._bfs_reachable_states(start_nodes, player_id)
         for (rx, ry, _) in reachable_states:
             if rx == target_x and ry == target_y:
                 return True
-
         return False
 
-    def _bfs_reachable_states(self, start_nodes: Set[Tuple[int, int]], player_color: str) -> Set[
-        Tuple[int, int, Optional[Direction]]]:
+    def _bfs_reachable_states(self, start_nodes: Set[Tuple[int, int]], player_id: int) -> Set[Tuple[int, int, Optional[Direction]]]:
         visited = set()
         queue = []
 
@@ -131,14 +111,11 @@ class GameBoard:
         while queue:
             curr_x, curr_y, entry_dir = queue.pop(0)
             curr_card = self.grid.get((curr_x, curr_y))
-            if not curr_card: continue
+            if not curr_card or not isinstance(curr_card, PathCard): continue
 
             allowed_exits = curr_card.get_exits(entry_dir)
 
-            # [NEW] Логика Дверей
-            # Если мы зашли в чужую закрытую дверь, мы обнуляем доступные выходы из неё.
-            # Мы можем на неё "встать" (чтобы применить ключ), но пройти сквозь неё дальше нельзя.
-            if curr_card.is_door and curr_card.color != player_color and curr_card.is_locked:
+            if isinstance(curr_card, DoorCard) and curr_card.door_owner_id != player_id and curr_card.is_locked:
                 allowed_exits = set()
 
             for direction in allowed_exits:
@@ -147,11 +124,11 @@ class GameBoard:
 
                 if neighbor_pos in self.grid:
                     neighbor_card = self.grid[neighbor_pos]
-                    arrival_side = self._get_opposite_dir(direction)
-
-                    if neighbor_card.openings.get_opening(arrival_side):
-                        new_state = (neighbor_pos[0], neighbor_pos[1], arrival_side)
-                        if new_state not in visited:
-                            visited.add(new_state)
-                            queue.append(new_state)
+                    if isinstance(neighbor_card, PathCard):
+                        arrival_side = self._get_opposite_dir(direction)
+                        if neighbor_card.openings.get_opening(arrival_side):
+                            new_state = (neighbor_pos[0], neighbor_pos[1], arrival_side)
+                            if new_state not in visited:
+                                visited.add(new_state)
+                                queue.append(new_state)
         return visited

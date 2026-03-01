@@ -1,106 +1,97 @@
 from game import Game
-from src.cards import ConsoleColor
+from view import ConsoleView, ConsoleColor
+from cards import ActionCard, ActionType, EquipmentType, PathCard
 
 
-def interactive_loop(game: Game):
+def interactive_loop(game: Game, view: ConsoleView):
     while True:
         if game.is_game_over():
-            print("\n" + "=" * 50)
-            print(f"{ConsoleColor.YELLOW}ИГРА ОКОНЧЕНА!{ConsoleColor.RESET}")
-            game.print_state()
-
+            view.print_message("\n" + "=" * 50)
+            view.print_message("ИГРА ОКОНЧЕНА!")
+            view.print_board(game)
             scores = game.calculate_scores()
-            print("ИТОГОВЫЙ СЧЕТ:")
-            print(f"Игрок 0 (Синий): {scores[0]} слитков")
-            print(f"Игрок 1 (Зеленый): {scores[1]} слитков")
-
-            if scores[0] > scores[1]:
-                print(f"{ConsoleColor.BLUE}ПОБЕДИЛ ИГРОК 0!{ConsoleColor.RESET}")
-            elif scores[1] > scores[0]:
-                print(f"{ConsoleColor.GREEN}ПОБЕДИЛ ИГРОК 1!{ConsoleColor.RESET}")
-            else:
-                print("НИЧЬЯ!")
+            print(f"ИТОГОВЫЙ СЧЕТ: Игрок 0: {scores[0]}, Игрок 1: {scores[1]}")
             break
 
-        print("\n" + "=" * 50)
-        game.print_state()
+        view.print_message("\n" + "=" * 50)
+        view.print_board(game)
 
         curr_p = game.current_player
         hand = game.hands[curr_p]
 
-        print(f"{game.player_colors[curr_p]}\nХОД ИГРОКА {curr_p} {ConsoleColor.RESET} ")
-        print("Ваша рука:")
-        for i, c in enumerate(hand):
-            print(f"  {i}: [{c.name}] {c}")
+        view.print_hand(curr_p, hand)
 
-        print("\nВыберите действие:")
-        print("1. Построить туннель")
-        print("2. Использовать карту действия (Ключ)")
-        print("3. Сбросить карты (1-2 шт)")
+        print("\nДействия:")
+        print("1. Сыграть карту")
+        print("2. Сбросить карты (1-2 шт)")
+        print("3. Экстренная починка (сбросить 2 карты чтобы починить предмет)")
         print("4. Выход")
 
-        choice = input("\nВаш выбор: ").strip().lower()
-
+        choice = input("\nВыбор: ").strip()
         if choice == '4': break
 
-        # --- 1. ТУННЕЛЬ ---
         if choice == '1':
             try:
-                coords = input("Введите (x y): ").split()
-                x, y = int(coords[0]), int(coords[1])
-                moves = game.get_possible_moves_at(x, y)
+                c_idx = int(input("Введите номер карты из руки: "))-1
+                card = hand[c_idx]
 
-                # Фильтруем только туннели (не ключи)
-                tunnel_moves = [m for m in moves if not hand[m[0]].is_key]
+                if isinstance(card, PathCard) or (
+                        isinstance(card, ActionCard) and card.action_type in [ActionType.KEY, ActionType.ROCKFALL]):
+                    # Карта требует координат поля
+                    coords = input("Введите координаты (x y): ").split()
+                    x, y = int(coords[0]), int(coords[1])
 
-                if not tunnel_moves:
-                    print("Нет подходящих туннелей для этой клетки.")
+                    rot = False
+                    if isinstance(card, PathCard):
+                        rot_input = input("Повернуть карту? (y/n): ").strip().lower()
+                        rot = rot_input == 'y'
+
+                    result = game.play_turn(c_idx, x=x, y=y, rotate_before_playing=rot)
+
+                elif isinstance(card, ActionCard) and card.action_type in [ActionType.SABOTAGE, ActionType.REPAIR]:
+                    # Карта играется на игрока
+                    t_id = int(input("Укажите цель (номер игрока 0 или 1): "))
+                    result = game.play_turn(c_idx, target_player=t_id)
+                else:
                     continue
 
-                for i, (h_idx, card_obj, rot) in enumerate(tunnel_moves):
-                    print(f"  {i + 1}: {card_obj.name} {'(ПОВЕРНУТ)' if rot else ''} {card_obj}")
+                if result.success:
+                    view.print_message(result.message)
+                    if result.revealed_gold: view.print_message(f"✨ ЗОЛОТО НАЙДЕНО: {result.revealed_gold} слитков! ✨")
+                else:
+                    view.print_message(result.message, is_error=True)
 
-                c_idx = int(input("Выберите вариант: ")) - 1
-                h_idx, _, rot = tunnel_moves[c_idx]
-                game.play_turn(h_idx, x, y, rotate_before_playing=rot)
             except Exception as e:
-                print(f"Ошибка: {e}")
+                view.print_message(f"Ошибка ввода: {e}", is_error=True)
 
-        # --- 2. ДЕЙСТВИЕ ---
         elif choice == '2':
-            # Ищем ключи в руке
-            actions = [(i, c) for i, c in enumerate(hand) if c.is_key or c.is_rockfall]
-            if not actions:
-                print("У вас нет карт действий!")
-                continue
-
-            for i, (h_idx, c) in enumerate(actions):
-                print(f"  {i + 1}: {c.name}")
-
             try:
-                k_choice = int(input("Выберите карту: ")) - 1
-                h_idx = actions[k_choice][0]
-                coords = input("Введите координаты (x y): ").split()
-                x, y = int(coords[0]), int(coords[1])
-                if game.play_action_card(h_idx, x, y):
-                    print("Нельзя применить здесь!")
+                indices = [int(i) for i in input("Номера карт через пробел: ").split()]
+                res = game.discard_cards(curr_p, indices)
+                if not res.success: view.print_message(res.message, is_error=True)
             except:
-                print("Ошибка ввода.")
+                view.print_message("Неверный ввод.", is_error=True)
 
-        # --- 3. СБРОС ---
         elif choice == '3':
             try:
-                indices_str = input("Введите номера карт через пробел (напр. '0 2'): ").split()
-                indices = [int(i) for i in indices_str]
-                if 1 <= len(indices) <= 2:
-                    game.discard_cards(curr_p, indices)
-                    print(f"Карты {indices} сброшены. Вы добрали новые.")
+                indices = [int(i) for i in input("Укажите 2 номера карт для сброса: ").split()]
+                print("Какой предмет чиним? 1 - Лампа, 2 - Вагонетка, 3 - Кирка")
+                eq_map = {'1': EquipmentType.LAMP, '2': EquipmentType.CART, '3': EquipmentType.PICKAXE}
+                eq_choice = input("Выбор: ").strip()
+
+                if eq_choice in eq_map:
+                    res = game.discard_two_to_repair(curr_p, indices, eq_map[eq_choice])
+                    if res.success:
+                        view.print_message(res.message)
+                    else:
+                        view.print_message(res.message, is_error=True)
                 else:
-                    print("Можно сбросить только 1 или 2 карты.")
+                    view.print_message("Неверный предмет.", is_error=True)
             except:
-                print("Неверные индексы.")
+                view.print_message("Неверный ввод.", is_error=True)
 
 
 if __name__ == "__main__":
     g = Game()
-    interactive_loop(g)
+    v = ConsoleView()
+    interactive_loop(g, v)
