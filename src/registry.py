@@ -1,11 +1,12 @@
 from typing import Dict
-from cards import CardTemplate, TunnelCardTemplate, CardOpenings, Direction
+from cards import (CardTemplate, TunnelCardTemplate, CardOpenings, Direction,
+                   StartCardTemplate, DoorCardTemplate, LadderCardTemplate,
+                   ActionCardTemplate, ActionType, EquipmentType, GoldCardTemplate)
+
 
 class TemplateRegistry:
-    """
-    Глобальный справочник всех карт игры.
-    Загружается один раз при старте.
-    """
+    """Глобальный справочник всех карт игры."""
+
     def __init__(self):
         self.templates: Dict[str, CardTemplate] = {}
 
@@ -17,6 +18,72 @@ class TemplateRegistry:
             raise ValueError(f"Шаблон {template_id} не найден в реестре!")
         return self.templates[template_id]
 
-# Глобальный экземпляр для удобства
-# (В будущем можно вынести инициализацию в отдельный загрузчик)
+
 REGISTRY = TemplateRegistry()
+
+
+def setup_global_registry():
+    """Вызывается один раз за всё время работы программы."""
+    if REGISTRY.templates:
+        return  # Защита от повторной инициализации при MCTS rollouts
+
+    # 1. Обычные туннели
+    tunnel_configs = [
+        ("tunnel_cross", "Crossroad", (True, True, True, True)),
+        ("tunnel_t", "T-Junction", (True, True, True, False)),
+        ("tunnel_straight", "Straight", (True, True, False, False)),
+        ("tunnel_corner", "Corner", (False, True, True, False)),
+        ("tunnel_deadend", "Dead End", (True, False, False, False))
+    ]
+    for t_id, name, ops in tunnel_configs:
+        REGISTRY.register(TunnelCardTemplate(id=t_id, name=name,
+                                             openings=CardOpenings(up=ops[0], down=ops[1], left=ops[2], right=ops[3])))
+
+    # 2. Сложные туннели
+    subnetwork_configs = [
+        ("tunnel_bridge", "Bridge", (True, True, True, True), [frozenset({Direction.UP, Direction.DOWN}), frozenset({Direction.LEFT, Direction.RIGHT})]),
+        ("tunnel_double_corner", "Double Corner", (True, True, True, True),[frozenset({Direction.UP, Direction.LEFT}),frozenset ({Direction.DOWN, Direction.RIGHT})]),
+        ("tunnel_split_t_up", "Split T Vertical", (True, True, True, True),[frozenset({Direction.UP}), frozenset({Direction.DOWN, Direction.LEFT, Direction.RIGHT})]),
+        ("tunnel_split_t_l", "Split T Left", (True, True, True, True),[frozenset({Direction.LEFT}),frozenset( {Direction.DOWN, Direction.UP, Direction.RIGHT})]),
+    ]
+
+    for t_id, name, ops, subs in subnetwork_configs:
+        REGISTRY.register(TunnelCardTemplate(id=t_id, name=name,
+                                             openings=CardOpenings(up=ops[0], down=ops[1], left=ops[2], right=ops[3]), subnetworks=subs))
+
+
+    # 3. Старты, Двери, Лестницы
+    REGISTRY.register(StartCardTemplate(id="start_blue", name="Start Blue",
+                                        openings=CardOpenings(up=True, down=True, left=True, right=True)))
+    REGISTRY.register(StartCardTemplate(id="start_green", name="Start Green",
+                                        openings=CardOpenings(up=True, down=True, left=True, right=True)))
+    REGISTRY.register(DoorCardTemplate(id="door_blue", name="Blue Door",
+                                       openings=CardOpenings(up=True, down=True, left=False, right=False),
+                                       door_owner_id=0))
+    REGISTRY.register(DoorCardTemplate(id="door_green", name="Green Door",
+                                       openings=CardOpenings(up=True, down=True, left=False, right=False),
+                                       door_owner_id=1))
+    REGISTRY.register(LadderCardTemplate(id="ladder", name="Ladder",
+                                         openings=CardOpenings(up=False, down=True, left=True, right=False)))
+
+    # 4. Действия
+    REGISTRY.register(ActionCardTemplate(id="act_boom", name="Boom", action_type=ActionType.ROCKFALL))
+    REGISTRY.register(ActionCardTemplate(id="act_key", name="Key", action_type=ActionType.KEY))
+    REGISTRY.register(ActionCardTemplate(id="act_map", name="Map", action_type=ActionType.MAP))
+
+    for eq in EquipmentType:
+        REGISTRY.register(
+            ActionCardTemplate(id=f"brk_{eq.name}", name=f"Break {eq.value}", action_type=ActionType.SABOTAGE,
+                               equipment_type=eq))
+        REGISTRY.register(
+            ActionCardTemplate(id=f"rep_{eq.name}", name=f"Repair {eq.value}", action_type=ActionType.REPAIR,
+                               equipment_type=eq))
+
+    # 5. Золото (включая маскировочный шаблон для POMDP)
+    for val in [1, 2, 3]:
+        REGISTRY.register(GoldCardTemplate(id=f"gold_val_{val}", name=f"Gold {val}",
+                                           openings=CardOpenings(up=True, down=True, left=True, right=True),
+                                           gold_value=val))
+
+    REGISTRY.register(GoldCardTemplate(id="hidden_gold", name="Hidden Gold",
+                                       openings=CardOpenings(up=True, down=True, left=True, right=True), gold_value=0))

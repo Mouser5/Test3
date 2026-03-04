@@ -7,10 +7,6 @@ from registry import TemplateRegistry
 
 
 class BoardEngine:
-    """
-    Stateless-движок. Оптимизирован для миллионов симуляций (MCTS/RL).
-    """
-
     def __init__(self, registry: TemplateRegistry):
         self.registry = registry
 
@@ -20,8 +16,8 @@ class BoardEngine:
 
     @staticmethod
     def str_to_coord(coord_str: str) -> Tuple[int, int]:
-        parts = coord_str.split(',')
-        return int(parts[0]), int(parts[1])
+        p = coord_str.split(',')
+        return int(p[0]), int(p[1])
 
     @staticmethod
     def get_opposite_dir(direction: Direction) -> Direction:
@@ -38,13 +34,13 @@ class BoardEngine:
     Set[Direction]:
         effective_entry = self.get_opposite_dir(entry_from) if (is_rotated and entry_from) else entry_from
         exits = template.get_exits(effective_entry)
-        if is_rotated:
-            return {self.get_opposite_dir(d) for d in exits}
+        if is_rotated: return {self.get_opposite_dir(d) for d in exits}
         return set(exits)
 
     def is_move_valid(self, x: int, y: int, placed_card: PlacedCard,
                       player_start_pos: Tuple[int, int], player_id: int,
-                      board_state: Dict[str, PlacedCard]) -> bool:
+                      board_state: Dict[str, PlacedCard], player_ladders: Set[str],
+                      skip_path_check: bool = False) -> bool:
 
         template = self.registry.get(placed_card.template_id)
         coord_key = self.coord_to_str(x, y)
@@ -57,22 +53,22 @@ class BoardEngine:
             if template.action_type == ActionType.KEY:
                 if not isinstance(target_template, DoorCardTemplate): return False
                 if target_template.door_owner_id == player_id or not target_placed.is_locked: return False
-                # Ключ не требует гипотетической подмены, просто проверяем путь до двери
-                return self.check_path_connectivity(x, y, player_start_pos, player_id, board_state)
+                # Ключ применяется на поле, тут всё равно нужен BFS, чтобы проверить,
+                # дошел ли игрок до двери (если это не вызов с фронтира)
+                if skip_path_check: return True
+                return self.check_path_connectivity(x, y, player_start_pos, player_id, board_state, player_ladders)
 
             if template.action_type == ActionType.ROCKFALL:
                 if isinstance(target_template, (StartCardTemplate, GoldCardTemplate)): return False
                 return True
             return False
 
-        if not isinstance(template, PathCardTemplate) or coord_key in board_state:
-            return False
+        if not isinstance(template, PathCardTemplate) or coord_key in board_state: return False
 
         has_neighbor = False
         has_tunnel_connection = False
         valid_geometry = True
 
-        # ВАЖНО: Убрано .copy()! Теперь проверка гипотетическая
         for direction in Direction:
             dx, dy = direction.value
             nx, ny = x + dx, y + dy
@@ -101,49 +97,47 @@ class BoardEngine:
                             valid_geometry = False
                             break
 
-                    if my_opening and neighbor_opening:
-                        has_tunnel_connection = True
+                    if my_opening and neighbor_opening: has_tunnel_connection = True
 
-        if not has_neighbor or not valid_geometry or not has_tunnel_connection:
-            return False
+        if not has_neighbor or not valid_geometry or not has_tunnel_connection: return False
 
-        if isinstance(template, LadderCardTemplate):
+        # --- ИСПРАВЛЕНИЕ: Ранний выход за O(1) ---
+        if isinstance(template, LadderCardTemplate) or skip_path_check:
             return True
 
-        # Передаем гипотетическую карту в алгоритм поиска пути
         return self.check_path_connectivity(
-            target_x=x, target_y=y,
-            player_start_pos=player_start_pos, player_id=player_id,
-            board_state=board_state,
+            target_x=x, target_y=y, player_start_pos=player_start_pos, player_id=player_id,
+            board_state=board_state, player_ladders=player_ladders,
             hypo_pos=(x, y), hypo_card=placed_card
         )
 
     def check_path_connectivity(self, target_x: int, target_y: int,
                                 player_start_pos: Tuple[int, int], player_id: int,
-                                board_state: Dict[str, PlacedCard],
+                                board_state: Dict[str, PlacedCard], player_ladders: Set[str],
                                 hypo_pos: Optional[Tuple[int, int]] = None,
                                 hypo_card: Optional[PlacedCard] = None) -> bool:
         start_nodes = {player_start_pos}
 
-        for pos_str, p_card in board_state.items():
-            tpl = self.registry.get(p_card.template_id)
-            if isinstance(tpl, LadderCardTemplate) and p_card.owner_id == player_id:
-                nx, ny = self.str_to_coord(pos_str)
-                if (nx, ny) != (target_x, target_y):
-                    start_nodes.add((nx, ny))
+        # ИСПРАВЛЕНИЕ O(N): Извлекаем лестницы за O(1)
+        for pos_str in player_ladders:
+            nx, ny = self.str_to_coord(pos_str)
+            if (nx, ny) != (target_x, target_y):
+                start_nodes.add((nx, ny))
 
-        # Запускаем BFS. Он вернет True при раннем выходе (Early Exit), если найдет цель.
+        # Если гипотетический ход - это лестница, добавляем её!
+        if hypo_pos and hypo_card:
+            hypo_tpl = self.registry.get(hypo_card.template_id)
+            if isinstance(hypo_tpl, LadderCardTemplate) and hypo_card.owner_id == player_id:
+                if hypo_pos != (target_x, target_y): start_nodes.add(hypo_pos)
+
         reachable = self.bfs_reachable_states(
             start_nodes, player_id, board_state,
             hypo_pos=hypo_pos, hypo_card=hypo_card, target_coord=(target_x, target_y)
         )
 
-        if reachable is True:
-            return True
-
-        for (rx, ry, _) in reachable:  # Фолбэк на случай, если target_coord не был передан
-            if rx == target_x and ry == target_y:
-                return True
+        if reachable is True: return True
+        for (rx, ry, _) in reachable:
+            if rx == target_x and ry == target_y: return True
         return False
 
     def bfs_reachable_states(self, start_nodes: Set[Tuple[int, int]], player_id: int,
@@ -153,7 +147,7 @@ class BoardEngine:
                              target_coord: Optional[Tuple[int, int]] = None) -> Union[
         Set[Tuple[int, int, Optional[Direction]]], bool]:
         visited = set()
-        queue = deque()  # ОШИБКА ИСПРАВЛЕНА: используем deque для O(1) извлечения
+        queue = deque()
 
         for sx, sy in start_nodes:
             if self.coord_to_str(sx, sy) in board_state or (hypo_pos and (sx, sy) == hypo_pos):
@@ -162,18 +156,14 @@ class BoardEngine:
                 queue.append(state)
 
         while queue:
-            curr_x, curr_y, entry_dir = queue.popleft()  # O(1)
+            curr_x, curr_y, entry_dir = queue.popleft()
 
-            # EARLY EXIT: Ранний выход
-            if target_coord and (curr_x, curr_y) == target_coord:
-                return True
+            if target_coord and (curr_x, curr_y) == target_coord: return True
 
-            # ГИПОТЕТИЧЕСКАЯ ПОДМЕНА текущего узла
             if hypo_pos and (curr_x, curr_y) == hypo_pos:
                 curr_placed = hypo_card
             else:
-                curr_key = self.coord_to_str(curr_x, curr_y)
-                curr_placed = board_state.get(curr_key)
+                curr_placed = board_state.get(self.coord_to_str(curr_x, curr_y))
 
             if not curr_placed: continue
 
@@ -181,8 +171,7 @@ class BoardEngine:
             if not isinstance(curr_template, PathCardTemplate): continue
 
             if isinstance(curr_template, DoorCardTemplate):
-                if curr_template.door_owner_id != player_id and curr_placed.is_locked:
-                    continue
+                if curr_template.door_owner_id != player_id and curr_placed.is_locked: continue
 
             allowed_exits = self._get_effective_exits(curr_template, entry_dir, curr_placed.is_rotated_180)
 
@@ -190,22 +179,71 @@ class BoardEngine:
                 dx, dy = direction.value
                 nx, ny = curr_x + dx, curr_y + dy
 
-                # ГИПОТЕТИЧЕСКАЯ ПОДМЕНА соседа
                 if hypo_pos and (nx, ny) == hypo_pos:
                     neighbor_placed = hypo_card
                 else:
-                    neighbor_key = self.coord_to_str(nx, ny)
-                    neighbor_placed = board_state.get(neighbor_key)
+                    neighbor_placed = board_state.get(self.coord_to_str(nx, ny))
 
                 if neighbor_placed:
                     neighbor_template = self.registry.get(neighbor_placed.template_id)
                     if isinstance(neighbor_template, PathCardTemplate):
                         arrival_side = self.get_opposite_dir(direction)
-
                         if self._get_effective_opening(neighbor_template, arrival_side, neighbor_placed.is_rotated_180):
                             new_state = (nx, ny, arrival_side)
                             if new_state not in visited:
                                 visited.add(new_state)
                                 queue.append(new_state)
-
         return visited
+
+    def get_player_frontier(self, player_start_pos: Tuple[int, int], player_id: int,
+                            board_state: Dict[str, PlacedCard], player_ladders: Set[str]) -> Set[Tuple[int, int]]:
+        """
+        Возвращает фронтир: множество пустых координат, смежных с открытыми выходами сети игрока.
+        Один вызов этого метода заменяет сотни проверок is_move_valid.
+        """
+        frontier = set()
+        start_nodes = {player_start_pos}
+        for pos_str in player_ladders:
+            start_nodes.add(self.str_to_coord(pos_str))
+
+        visited = set()
+        queue = deque()
+
+        for sx, sy in start_nodes:
+            if self.coord_to_str(sx, sy) in board_state:
+                state = (sx, sy, None)
+                visited.add(state)
+                queue.append(state)
+
+        while queue:
+            curr_x, curr_y, entry_dir = queue.popleft()
+            curr_placed = board_state.get(self.coord_to_str(curr_x, curr_y))
+            if not curr_placed: continue
+
+            curr_template = self.registry.get(curr_placed.template_id)
+            if not isinstance(curr_template, PathCardTemplate): continue
+            if isinstance(curr_template,
+                          DoorCardTemplate) and curr_template.door_owner_id != player_id and curr_placed.is_locked:
+                continue
+
+            allowed_exits = self._get_effective_exits(curr_template, entry_dir, curr_placed.is_rotated_180)
+
+            for direction in allowed_exits:
+                dx, dy = direction.value
+                nx, ny = curr_x + dx, curr_y + dy
+                neighbor_key = self.coord_to_str(nx, ny)
+
+                if neighbor_key not in board_state:
+                    # Клетка пуста и физически доступна из сети игрока!
+                    frontier.add((nx, ny))
+                else:
+                    neighbor_placed = board_state[neighbor_key]
+                    neighbor_template = self.registry.get(neighbor_placed.template_id)
+                    if isinstance(neighbor_template, PathCardTemplate):
+                        arrival_side = self.get_opposite_dir(direction)
+                        if self._get_effective_opening(neighbor_template, arrival_side, neighbor_placed.is_rotated_180):
+                            new_state = (nx, ny, arrival_side)
+                            if new_state not in visited:
+                                visited.add(new_state)
+                                queue.append(new_state)
+        return frontier
