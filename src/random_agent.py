@@ -36,14 +36,15 @@ class RandomAgent:
                 return None
 
             action = random.choice(legal_actions)
-            logger.debug(f"Игрок {self.player_id} выбрал действие: {action.model_dump_json()}")
+            # ИСПРАВЛЕНО: замена Pydantic-метода на str()
+            logger.debug(f"Игрок {self.player_id} выбрал действие: {str(action)}")
             return action
 
         except Exception as e:
             logger.critical(f"Критическая ошибка при генерации ходов игрока {self.player_id}!")
             logger.critical(traceback.format_exc())
-            # Сохраняем стейт, на котором сломался генератор ходов
-            logger.critical(f"STATE DUMP: {game.state.model_dump_json()}")
+            # ИСПРАВЛЕНО: замена Pydantic-метода
+            logger.critical(f"STATE TURN: {game.state.turn_number}")
             raise e
 
 
@@ -74,7 +75,7 @@ def run_visual_match():
             if not success:
                 # Такого происходить не должно, так как мы выбираем из легальных ходов
                 logger.error(
-                    f"Легальный ход был отклонен движком! Действие: {action.model_dump_json()} | Причина: {msg}")
+                    f"Легальный ход был отклонен движком! Действие: {str(action)} | Причина: {msg}")
 
             if turn_count % 10 == 0 or rev_gold is not None or "Обвал" in msg:
                 view.print_message(f"Ход {turn_count}: Игрок {curr_p} выполнил {action.type}")
@@ -94,7 +95,7 @@ def run_visual_match():
         print(f"\n[!] ПРОИЗОШЕЛ КРАШ! Проверьте agent_debug.log")
         logger.critical("КРАШ ВО ВРЕМЯ ИГРОВОГО ЦИКЛА!")
         logger.critical(traceback.format_exc())
-        logger.critical(f"STATE DUMP: {game.state.model_dump_json()}")
+        logger.critical(f"STATE TURN: {game.state.turn_number}")
 
 
 def run_benchmark(num_games: int = 1000):
@@ -120,7 +121,7 @@ def run_benchmark(num_games: int = 1000):
 
                 success, msg, _ = game.step(action)
                 if not success:
-                    logger.error(f"Game {game_idx}: Ход отклонен: {msg} | Action: {action.model_dump_json()}")
+                    logger.error(f"Game {game_idx}: Ход отклонен: {msg} | Action: {str(action)}")
 
                 total_turns += 1
             games_completed += 1
@@ -132,7 +133,7 @@ def run_benchmark(num_games: int = 1000):
             print(f"\n[!] КРАШ НА ПАРТИИ #{game_idx}! Бенчмарк остановлен. Логи сохранены в agent_debug.log")
             logger.critical(f"КРАШ НА ПАРТИИ #{game_idx} (Ход матча: {game.state.turn_number})")
             logger.critical(traceback.format_exc())
-            logger.critical(f"STATE DUMP: {game.state.model_dump_json()}")
+            logger.critical(f"STATE TURN: {game.state.turn_number}")
             break  # Прерываем бенчмарк при первой же ошибке
 
     end_time = time.perf_counter()
