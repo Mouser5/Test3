@@ -1,0 +1,73 @@
+@startuml agent_interface
+
+skinparam classAttributeIconSize 0
+skinparam monochrome false
+skinparam shadowing false
+
+title Интерфейс агента для игры "Гномы-вредители: Дуэль"
+
+package "Интерфейс агента" {
+    interface AgentInterface {
+        + player_id: int
+        + choose_action(game: Game): Optional[AgentAction]
+    }
+}
+
+package "Встроенные агенты" {
+    class RandomAgent {
+        - player_id: int
+        + choose_action(game: Game): Optional[AgentAction]
+    }
+    
+    class HeuristicAgent {
+        - player_id: int
+        - logger: Logger
+        + choose_action(game: Game): Optional[AgentAction]
+        - _select_best_action(game: Game, actions: List[AgentAction]): AgentAction
+        - _choose_best_build_action(game: Game, actions: List[ActionBuild]): Optional[ActionBuild]
+        - _distance_to_nearest_unrevealed_gold(x: int, y: int, game: Game): Optional[int]
+        - _choose_best_map_action(game: Game, actions: List[ActionPlayBoardUtility]): Optional[ActionPlayBoardUtility]
+        - _pick_best_sabotage(actions: List[ActionPlayPlayerUtility], opponent_state: PlayerState): ActionPlayPlayerUtility
+        - _choose_best_rockfall(game: Game, actions: List[ActionPlayBoardUtility], opponent_id: int): Optional[ActionPlayBoardUtility]
+        - _choose_best_discard(game: Game, actions: List[ActionDiscard]): Optional[ActionDiscard]
+    }
+    
+    class SmartAgent {
+        - player_id: int
+        - lookahead_depth: int
+        + choose_action(game: Game): Optional[AgentAction]
+        - _evaluate_position(game: Game): float
+    }
+}
+
+package "Пользовательский агент" {
+    class UserAgent <<Ваш класс>> {
+        - player_id: int
+        + choose_action(game: Game): Optional[AgentAction]
+    }
+}
+
+AgentInterface <|.. RandomAgent : реализует
+AgentInterface <|.. HeuristicAgent : реализует
+AgentInterface <|.. SmartAgent : реализует
+AgentInterface <|.. UserAgent : реализует
+
+SmartAgent --|> HeuristicAgent : наследует
+
+note right of UserAgent
+  **Требования:**
+  1. Конструктор принимает player_id: int
+  2. Метод choose_action(game) -> AgentAction
+  3. Используйте game.get_legal_actions()
+  4. Возвращайте None если нет ходов
+end note
+
+note bottom of AgentInterface
+  **AgentAction** — это одно из:
+  - ActionBuild
+  - ActionPlayBoardUtility
+  - ActionPlayPlayerUtility
+  - ActionDiscard
+end note
+
+@enduml

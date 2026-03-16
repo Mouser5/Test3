@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  game-web:
+    build: .
+    container_name: gnomes-game
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./src:/app/src
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
