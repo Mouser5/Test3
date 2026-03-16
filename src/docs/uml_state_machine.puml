@@ -1,0 +1,157 @@
+@startuml Game State Machine
+!theme plain
+hide empty description
+
+title Диаграмма состояний игры "Гномы-вредители: Дуэль"
+
+skinparam state {
+    BackgroundColor<<ready>> #E8F5E9
+    BackgroundColor<<busy>> #FFF3E0
+    BackgroundColor<<error>> #FFEBEE
+    BackgroundColor<<terminal>> #E1BEE7
+}
+
+[*] --> Инициализация
+
+state "Инициализация" as Инициализация {
+    state "Готов" as InitReady <<ready>>
+    state "Занят" as InitBusy <<busy>>
+    state "Ошибка" as InitError <<error>>
+    
+    [*] --> InitReady
+    InitReady --> InitBusy : начать настройку
+    InitBusy --> InitReady : настройка завершена
+    InitBusy --> InitError : сбой инициализации
+    InitError --> InitReady : повторить
+}
+
+Инициализация --> ХодИгрока0 : игрок 0 ходит первым
+
+state "Ход игрока 0" as ХодИгрока0 {
+    state "Готов к ходу" as Player0Ready <<ready>>
+    state "Выбор действия" as Player0Choosing <<busy>>
+    state "Валидация" as Player0Validating <<busy>>
+    state "Выполнение хода" as Player0Executing <<busy>>
+    state "Ошибка хода" as Player0Error <<error>>
+    
+    [*] --> Player0Ready
+    Player0Ready --> Player0Choosing : запрос действия
+    Player0Choosing --> Player0Validating : действие выбрано
+    Player0Validating --> Player0Executing : ход валиден
+    Player0Validating --> Player0Error : ход невалиден
+    Player0Error --> Player0Ready : повторить выбор
+    Player0Executing --> Player0Ready : ход завершён
+}
+
+ХодИгрока0 --> ХодИгрока1 : переход хода
+
+state "Ход игрока 1" as ХодИгрока1 {
+    state "Готов к ходу" as Player1Ready <<ready>>
+    state "Выбор действия" as Player1Choosing <<busy>>
+    state "Валидация" as Player1Validating <<busy>>
+    state "Выполнение хода" as Player1Executing <<busy>>
+    state "Ошибка хода" as Player1Error <<error>>
+    
+    [*] --> Player1Ready
+    Player1Ready --> Player1Choosing : запрос действия
+    Player1Choosing --> Player1Validating : действие выбрано
+    Player1Validating --> Player1Executing : ход валиден
+    Player1Validating --> Player1Error : ход невалиден
+    Player1Error --> Player1Ready : повторить выбор
+    Player1Executing --> Player1Ready : ход завершён
+}
+
+ХодИгрока1 --> ХодИгрока0 : переход хода
+
+ХодИгрока0 --> ПроверкаРаунда : после хода
+ХодИгрока1 --> ПроверкаРаунда : после хода
+
+state "Проверка конца раунда" as ПроверкаРаунда {
+    state "Готов к проверке" as CheckReady <<ready>>
+    state "Проверка условий" as CheckBusy <<busy>>
+    state "Раунд окончен" as RoundEnd <<ready>>
+    state "Раунд продолжается" as RoundContinue <<ready>>
+    
+    [*] --> CheckReady
+    CheckReady --> CheckBusy : начать проверку
+    CheckBusy --> RoundEnd : всё золото раскрыто\nили карты закончились
+    CheckBusy --> RoundContinue : есть ходы
+    RoundContinue --> [*] : вернуть ход
+    RoundEnd --> [*] : подсчёт очков
+}
+
+ПроверкаРаунда --> ХодИгрока0 : раунд продолжается\nход игрока 0
+ПроверкаРаунда --> ХодИгрока1 : раунд продолжается\nход игрока 1
+ПроверкаРаунда --> ПодсчётРаунда : раунд окончен
+
+state "Подсчёт очков раунда" as ПодсчётРаунда {
+    state "Готов" as ScoreReady <<ready>>
+    state "Подсчёт" as ScoreBusy <<busy>>
+    state "Сохранение" as ScoreSave <<busy>>
+    
+    [*] --> ScoreReady
+    ScoreReady --> ScoreBusy : начать подсчёт
+    ScoreBusy --> ScoreSave : очки подсчитаны
+    ScoreSave --> [*] : раунд записан
+}
+
+ПодсчётРаунда --> ПроверкаИгры : перейти к проверке
+
+state "Проверка конца игры" as ПроверкаИгры {
+    state "Готов" as GameCheckReady <<ready>>
+    state "Проверка раундов" as GameCheckBusy <<busy>>
+    state "Игра продолжается" as GameContinue <<ready>>
+    state "Игра окончена" as GameEnd <<ready>>
+    
+    [*] --> GameCheckReady
+    GameCheckReady --> GameCheckBusy : проверить номер раунда
+    GameCheckBusy --> GameContinue : раунд < 3
+    GameCheckBusy --> GameEnd : раунд = 3
+    GameContinue --> [*] : новый раунд
+    GameEnd --> [*] : финал
+}
+
+ПроверкаИгры --> НовыйРаунд : игра продолжается
+ПроверкаИгры --> ОпределениеПобедителя : игра окончена
+
+state "Новый раунд" as НовыйРаунд {
+    state "Готов" as NewRoundReady <<ready>>
+    state "Очистка поля" as NewRoundBusy <<busy>>
+    state "Раздача карт" as NewRoundDeal <<busy>>
+    
+    [*] --> NewRoundReady
+    NewRoundReady --> NewRoundBusy : очистить доску
+    NewRoundBusy --> NewRoundDeal : поле очищено
+    NewRoundDeal --> [*] : карты розданы
+}
+
+НовыйРаунд --> ХодИгрока0 : начать раунд
+
+state "Определение победителя" as ОпределениеПобедителя <<terminal>> {
+    state "Готов" as WinnerReady <<ready>>
+    state "Сравнение очков" as WinnerBusy <<busy>>
+    state "Победитель 0" as Win0 <<ready>>
+    state "Победитель 1" as Win1 <<ready>>
+    state "Ничья" as Draw <<ready>>
+    
+    [*] --> WinnerReady
+    WinnerReady --> WinnerBusy : сравнить total_scores
+    WinnerBusy --> Win0 : score[0] > score[1]
+    WinnerBusy --> Win1 : score[1] > score[0]
+    WinnerBusy --> Draw : score[0] = score[1]
+    Win0 --> [*]
+    Win1 --> [*]
+    Draw --> [*]
+}
+
+ОпределениеПобедителя --> [*] : игра завершена
+
+legend right
+    |= Цвет |= Значение |
+    | <#E8F5E9> Зелёный | Готов |
+    | <#FFF3E0> Оранжевый | Занят |
+    | <#FFEBEE> Красный | Ошибка |
+    | <#E1BEE7> Фиолетовый | Терминальное |
+endlegend
+
+@enduml

@@ -1,0 +1,250 @@
+@startuml
+skinparam classAttributeIconSize 0
+skinparam monochrome true
+
+title Game Classes
+
+package Cards {
+    class CardTemplate {
+        + id: str
+        + name: str
+    }
+    
+    class PathCardTemplate {
+        + openings: CardOpenings
+        + subnetworks: List
+        + get_exits(entry_from: Direction): Set
+    }
+    
+    class TunnelCardTemplate
+    class StartCardTemplate
+    class DoorCardTemplate {
+        + door_owner_id: int
+    }
+    class LadderCardTemplate
+    class GoldCardTemplate {
+        + gold_value: int
+    }
+    
+    class ActionCardTemplate {
+        + action_type: ActionType
+        + equipment_type: EquipmentType
+    }
+    
+    class CardOpenings {
+        + up: bool
+        + down: bool
+        + left: bool
+        + right: bool
+        + get_opening(direction: Direction): bool
+    }
+    
+    enum ActionType {
+        KEY
+        ROCKFALL
+        SABOTAGE
+        REPAIR
+        MAP
+    }
+    
+    enum EquipmentType {
+        LAMP
+        CART
+        PICKAXE
+    }
+    
+    enum Direction {
+        UP
+        DOWN
+        LEFT
+        RIGHT
+    }
+    
+    CardTemplate <|-- PathCardTemplate
+    CardTemplate <|-- ActionCardTemplate
+    PathCardTemplate <|-- TunnelCardTemplate
+    PathCardTemplate <|-- StartCardTemplate
+    PathCardTemplate <|-- DoorCardTemplate
+    PathCardTemplate <|-- LadderCardTemplate
+    PathCardTemplate <|-- GoldCardTemplate
+    PathCardTemplate *-- CardOpenings
+}
+
+package Actions {
+    abstract AgentAction {
+        + type: str
+    }
+    
+    class ActionBuild {
+        + type: str = "build"
+        + template_id: str
+        + x: int
+        + y: int
+        + is_rotated_180: bool
+    }
+    
+    class ActionPlayBoardUtility {
+        + type: str = "play_board_utility"
+        + template_id: str
+        + x: int
+        + y: int
+    }
+    
+    class ActionPlayPlayerUtility {
+        + type: str = "play_player_utility"
+        + template_id: str
+        + target_player_id: int
+    }
+    
+    class ActionDiscard {
+        + type: str = "discard"
+        + templates: List
+        + repair_equipment: EquipmentType
+    }
+    
+    AgentAction <|-- ActionBuild
+    AgentAction <|-- ActionPlayBoardUtility
+    AgentAction <|-- ActionPlayPlayerUtility
+    AgentAction <|-- ActionDiscard
+}
+
+package State {
+    class PlacedCard {
+        + template_id: str
+        + owner_id: int
+        + is_rotated_180: bool
+        + is_locked: bool
+        + is_revealed: bool
+    }
+    
+    class PlayerState {
+        + player_id: int
+        + hand: List
+        + broken_equipments: Set
+        + known_secrets: Set
+        + ladders: Set
+    }
+    
+    class MatchState {
+        + board: Dict
+        + players: Dict
+        + current_player_id: int
+        + deck: List
+        + gold_deck: List
+        + is_game_over: bool
+        + turn_number: int
+        + round_number: int
+        + first_player_in_round: int
+        + total_scores: Dict
+        + round_scores: Dict
+    }
+    
+    class ObservablePlayerState {
+        + player_id: int
+        + hand: List
+        + hand_size: int
+        + broken_equipments: Set
+    }
+    
+    class ObservableMatchState {
+        + board: Dict
+        + players: Dict
+        + current_player_id: int
+        + deck_size: int
+        + gold_deck_size: int
+        + is_game_over: bool
+        + turn_number: int
+        + round_number: int
+        + total_scores: Dict
+    }
+    
+    MatchState *-- PlacedCard
+    MatchState *-- PlayerState
+    ObservableMatchState *-- ObservablePlayerState
+}
+
+package Engine {
+    class Game {
+        - board_engine: BoardEngine
+        - state: MatchState
+        - start_positions: Dict
+        - board_bounds: Dict
+        + __init__()
+        + step(action: AgentAction): Tuple
+        + get_legal_actions(): List
+        + get_observation(player_id: int): ObservableMatchState
+        + is_round_over(): bool
+        + is_game_over(): bool
+        + check_round_end(): Tuple
+        + calculate_scores(): Dict
+        - _build_decks()
+        - _setup_board()
+        - _deal_initial_cards()
+        - _handle_build(action): Tuple
+        - _handle_board_utility(action): Tuple
+        - _handle_player_utility(action): Tuple
+        - _handle_discard(action): Tuple
+        - _check_and_reveal_gold(x, y, card): int
+        - _start_new_round()
+    }
+    
+    class BoardEngine {
+        - registry: TemplateRegistry
+        + is_move_valid(x, y, placed, start_pos, player_id, board, ladders, skip_path_check): bool
+        + check_path_connectivity(x, y, start_pos, player_id, board, ladders): bool
+        + bfs_reachable_states(start_nodes, player_id, board): Set
+        + get_player_frontier(start_pos, player_id, board, ladders): Set
+        + coord_to_str(x: int, y: int): str
+        + str_to_coord(coord_str: str): Tuple
+        + get_opposite_dir(direction: Direction): Direction
+        - _get_effective_opening(template, direction, is_rotated): bool
+    }
+    
+    class TemplateRegistry {
+        - templates: Dict
+        + register(template: CardTemplate)
+        + get(template_id: str): CardTemplate
+        + setup_global_registry()
+    }
+    
+    Game --> BoardEngine
+    Game --> MatchState
+    Game --> TemplateRegistry
+    BoardEngine --> TemplateRegistry
+}
+
+package Agents {
+    interface AgentInterface {
+        + player_id: int
+        + choose_action(game: Game): AgentAction
+    }
+    
+    class RandomAgent {
+        - player_id: int
+        + choose_action(game: Game): AgentAction
+    }
+    
+    class HeuristicAgent {
+        - player_id: int
+        - logger: Logger
+        + choose_action(game: Game): AgentAction
+        - _select_best_action(game, actions): AgentAction
+        - _choose_best_build_action(game, actions): ActionBuild
+        - _choose_best_map_action(game, actions): ActionPlayBoardUtility
+        - _pick_best_sabotage(actions, opponent): ActionPlayPlayerUtility
+        - _choose_best_rockfall(game, actions, opp_id): ActionPlayBoardUtility
+        - _choose_best_discard(game, actions): ActionDiscard
+    }
+    
+    class SmartAgent {
+        - lookahead_depth: int
+        - _evaluate_position(game: Game): float
+    }
+    
+    AgentInterface <|.. RandomAgent
+    AgentInterface <|.. HeuristicAgent
+    AgentInterface <|.. SmartAgent
+    SmartAgent --|> HeuristicAgent
+}
+
+@enduml
