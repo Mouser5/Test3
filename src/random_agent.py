@@ -170,11 +170,7 @@ def run_benchmark(num_games: int = 1000):
 
 
 if __name__ == "__main__":
-    # Для отладки конкретных ходов раскомментируйте строку ниже:
-    # logger.setLevel(logging.DEBUG)
 
-    # Режим 1: Посмотреть, как боты играют одну партию
-    # run_visual_match()
-
-    # Режим 2: Проверить реальную скорость оптимизированного движка
-    run_benchmark(1000)
+    print("Используйте main.py для запуска игр:")
+    print("  python main.py --bot-vs-bot --bot1 random --bot2 random")
+    print("  python main.py --benchmark 100 --bot1 random --bot2 heuristic")

@@ -32,20 +32,34 @@ from board import BoardEngine
 
 class Game:
     def __init__(self):
-        # Строгая инициализация глобального справочника (1 раз за всю работу программы)
         setup_global_registry()
 
         self.board_engine = BoardEngine(REGISTRY)
         self.state = MatchState()
 
-        # Инициализируем игроков
         self.state.players[0] = PlayerState(player_id=0)
         self.state.players[1] = PlayerState(player_id=1)
         self.start_positions = {0: (-1, 0), 1: (1, 0)}
 
+        self.board_bounds = {
+            "min_x": -3,
+            "max_x": 3,
+            "min_y": -9,
+            "max_y": 0,
+        }
+
+        self.state.first_player_in_round = random.randint(0, 1)
+        self.state.current_player_id = self.state.first_player_in_round
+
         self._build_decks()
         self._setup_board()
         self._deal_initial_cards()
+
+    def _is_within_bounds(self, x: int, y: int) -> bool:
+        return (
+            self.board_bounds["min_x"] <= x <= self.board_bounds["max_x"]
+            and self.board_bounds["min_y"] <= y <= self.board_bounds["max_y"]
+        )
 
     def _build_decks(self):
         """Быстрая сборка колод из ID-строк (без глубокого копирования объектов)."""
@@ -75,9 +89,14 @@ class Game:
         for t_id, count in counts.items():
             deck.extend([t_id] * count)
 
-        gold_deck = []
-        for val in [1, 1, 2, 2, 3, 3]:  # В дуэльной версии по 2 карты каждого номинала
-            gold_deck.append(f"gold_val_{val}")
+        gold_deck = [
+            "gold_1_ud",
+            "gold_1_lr",
+            "gold_2_corner",
+            "gold_2_t",
+            "gold_3_cross",
+            "gold_3_t",
+        ]
 
         random.shuffle(deck)
         random.shuffle(gold_deck)
@@ -102,10 +121,9 @@ class Game:
                 )
 
     def _deal_initial_cards(self):
+        second_player = 1 - self.state.first_player_in_round
         for p_id in [0, 1]:
-            cards_count = (
-                4 if p_id == 0 else 5
-            )  # Второй игрок получает бонус +1 по правилам
+            cards_count = 5 if p_id == second_player else 4
             for _ in range(cards_count):
                 if self.state.deck:
                     self.state.players[p_id].hand.append(self.state.deck.pop())
@@ -138,6 +156,9 @@ class Game:
 
         if action.template_id not in player_state.hand:
             return False, "Такой карты нет в руке.", None
+
+        if not self._is_within_bounds(action.x, action.y):
+            return False, "Координаты за пределами поля.", None
 
         template = REGISTRY.get(action.template_id)
 
@@ -382,8 +403,9 @@ class Game:
                 template, (TunnelCardTemplate, DoorCardTemplate, LadderCardTemplate)
             ):
                 if not player_state.broken_equipments:
-                    # Строить можно только в те пустоты, куда физически пришел путь игрока
                     for x, y in frontier_coords:
+                        if not self._is_within_bounds(x, y):
+                            continue
                         for is_rot in [False, True]:
                             placed = PlacedCard(
                                 template_id=t_id, owner_id=p_id, is_rotated_180=is_rot
@@ -523,9 +545,11 @@ class Game:
             gold_deck_size=len(self.state.gold_deck),
             is_game_over=self.is_game_over(),
             turn_number=self.state.turn_number,
+            round_number=self.state.round_number,
+            total_scores=self.state.total_scores.copy(),
         )
 
-    def is_game_over(self) -> bool:
+    def is_round_over(self) -> bool:
         unrevealed_gold = sum(
             1
             for p in self.state.board.values()
@@ -540,12 +564,49 @@ class Game:
             and not self.state.players[1].hand
         ):
             return True
-
-        scores = self.calculate_scores()
-        if scores[0] >= 3 or scores[1] >= 3:
-            self.state.is_game_over = True
-            return True
         return False
+
+    def is_game_over(self) -> bool:
+        return self.state.is_game_over or self.state.round_number > 3
+
+    def _start_new_round(self):
+        round_scores = self.calculate_scores()
+        self.state.total_scores[0] += round_scores[0]
+        self.state.total_scores[1] += round_scores[1]
+        self.state.round_scores = round_scores
+
+        self.state.round_number += 1
+
+        if self.state.round_number > 3:
+            self.state.is_game_over = True
+            return
+
+        if self.state.round_number == 2:
+            self.state.first_player_in_round = 1 - self.state.first_player_in_round
+        elif self.state.round_number == 3:
+            self.state.first_player_in_round = 1 - self.state.first_player_in_round
+
+        self.state.current_player_id = self.state.first_player_in_round
+        self.state.turn_number = 1
+        self.state.board.clear()
+        self.state.deck.clear()
+        self.state.gold_deck.clear()
+
+        for p_id in [0, 1]:
+            self.state.players[p_id].hand.clear()
+            self.state.players[p_id].broken_equipments.clear()
+            self.state.players[p_id].known_secrets.clear()
+            self.state.players[p_id].ladders.clear()
+
+        self._build_decks()
+        self._setup_board()
+        self._deal_initial_cards()
+
+    def check_round_end(self) -> Tuple[bool, Optional[Dict[int, int]]]:
+        if self.is_round_over():
+            self._start_new_round()
+            return True, self.state.round_scores
+        return False, None
 
     def calculate_scores(self) -> Dict[int, int]:
         """

@@ -1,0 +1,79 @@
+@startuml game_actions
+
+skinparam classAttributeIconSize 0
+skinparam monochrome false
+
+title Типы действий в игре "Гномы-вредители: Дуэль"
+
+package "Действия агента" {
+    abstract AgentAction {
+        + type: str
+    }
+    
+    class ActionBuild {
+        + type: Literal["build"]
+        + template_id: str
+        + x: int
+        + y: int
+        + is_rotated_180: bool
+    }
+    
+    class ActionPlayBoardUtility {
+        + type: Literal["play_board_utility"]
+        + template_id: str
+        + x: int
+        + y: int
+    }
+    
+    class ActionPlayPlayerUtility {
+        + type: Literal["play_player_utility"]
+        + template_id: str
+        + target_player_id: int
+    }
+    
+    class ActionDiscard {
+        + type: Literal["discard"]
+        + templates: List[str]
+        + repair_equipment: Optional[EquipmentType]
+    }
+}
+
+AgentAction <|-- ActionBuild : построить туннель
+AgentAction <|-- ActionPlayBoardUtility : ключ/обвал/карта
+AgentAction <|-- ActionPlayPlayerUtility : поломка/починка
+AgentAction <|-- ActionDiscard : сброс карт
+
+note right of ActionBuild
+  **Построить:**
+  - Туннель
+  - Дверь
+  - Лестницу
+  
+  x, y — координаты на доске
+  is_rotated_180 — поворот карты
+end note
+
+note right of ActionPlayBoardUtility
+  **На поле:**
+  - Ключ — открыть дверь
+  - Обвал — разрушить туннель
+  - Карта сокровищ — посмотреть золото
+end note
+
+note right of ActionPlayPlayerUtility
+  **На игрока:**
+  - Поломка — сломать инструмент
+  - Починка — починить инструмент
+  
+  target_player_id: 0 или 1
+end note
+
+note right of ActionDiscard
+  **Сброс:**
+  - 1-2 карты из руки
+  - Или экстренная починка за 2 карты
+  
+  repair_equipment — опционально
+end note
+
+@enduml

@@ -464,8 +464,7 @@ def test_smart_vs_random(num_games: int = 100):
 
 
 if __name__ == "__main__":
-    print("Тестирование HeuristicAgent vs RandomAgent:")
-    test_agents(50)
-    print()
-    print("Тестирование SmartAgent vs RandomAgent:")
-    test_smart_vs_random(50)
+
+    print("Используйте main.py для запуска игр:")
+    print("  python main.py --bot-vs-bot --bot1 heuristic --bot2 random")
+    print("  python main.py --benchmark 100 --bot1 smart --bot2 random")
