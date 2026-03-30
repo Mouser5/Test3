@@ -4,115 +4,186 @@
 
 ## Описание проекта
 
-Реализация настольной игры "Гномы-вредители: Дуэль" на Python с использованием Pydantic для моделей данных и Streamlit для веб-интерфейса.
+Реализация настольной игры "Гномы-вредители: Дуэль" на Python с использованием:
+- **FastAPI** - REST API для игры ботов
+- **Streamlit** - веб-интерфейс
+- **PostgreSQL** - хранение пользователей и истории игр
+- **Docker** - контейнеризация и изоляция ботов
 
-### Реализованные функции
+---
 
-#### Игровой движок (`game.py`)
-- Полная инициализация игры из конфигурации `game.yaml`
-- Управление состоянием матча (доска, игроки, колоды)
-- Валидация ходов с проверкой геометрии и достижимости (BFS)
-- Система лестниц для вертикального перемещения
-- Система дверей с блокировкой/открытием
-- Обнаружение и раскрытие золота при постройке
-- Подсчет очков и определение победителя
+## Быстрый старт
 
-#### Доска и валидация (`board.py`)
-- Проверка геометрической совместимости карт (стыковка выходов)
-- BFS-алгоритм для проверки достижимости пути
-- Поддержка поворота карт на 180°
-- Вычисление фронтира (доступных для постройки клеток)
-- Оптимизированная проверка путей с кэшированием лестниц
+```bash
+# Запуск всех сервисов
+docker compose up --build -d
 
-#### Карточная система (`cards.py`)
-- Шаблоны туннелей (обычные и сложные с подсетями)
-- Стартовые карты, двери, лестницы
-- Золотые жилы (6 карт с разными направлениями: up-down, left-right, corner, t-junction, cross)
-- Карты действий:
-  - Ключ (KEY) - открытие двери
-  - Обвал (ROCKFALL) - разрушение карты
-  - Карта сокровищ (MAP) - обнаружение золота
-  - Поломка (SABOTAGE) - вывод инструмента из строя
-  - Починка (REPAIR) - восстановление инструмента
+# Сервисы:
+# - Web UI:    http://localhost:8501
+# - API:       http://localhost:8000
+# - Swagger:   http://localhost:8000/docs
+# - PostgreSQL: localhost:5111 (5432 inside container)
+```
 
-#### Агенты (боты)
-- **RandomAgent** (`random_agent.py`) - случайный выбор хода
-- **HeuristicAgent** (`heuristic_agent.py`) - интеллектуальный бот с эвристиками
-- **SmartAgent** - расширенная версия с оценкой позиций
+---
 
-#### Веб-интерфейс (`src/web/`)
-- Загрузка пользовательских роботов через веб-форму
-- Валидация кода робота перед запуском
-- Режимы: одна подробная игра / бенчмарк из множества игр
-- ASCII-визуализация игровой доски
-- Подробный лог ходов
+## Архитектура
 
-### Структура проекта
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Game Web      │     │    Game API     │     │   PostgreSQL    │
+│  (Streamlit)    │────▶│    (FastAPI)    │────▶│    (БД)         │
+│    :8501        │     │     :8000       │     │    :5432        │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+                                  │
+                                  ▼ (webhook)
+                         ┌─────────────────┐
+                         │  Bot Container  │
+                         │ (изолированный) │
+                         │     :8001       │
+                         └─────────────────┘
+```
+
+---
+
+## API Документация
+
+### Swagger UI
+
+Полная документация доступна по адресу: http://localhost:8000/docs
+
+### Основные эндпоинты
+
+| Метод | Путь | Описание |
+|-------|------|---------|
+| GET | `/health` | Проверка здоровья API |
+| POST | `/games` | Создать новую игру |
+| GET | `/games/{game_id}` | Получить состояние игры |
+| GET | `/games/{game_id}/state` | Получить полное состояние для обоих игроков |
+| GET | `/games/{game_id}/legal-actions` | Получить легальные ходы |
+| POST | `/games/{game_id}/action` | Совершить ход |
+
+### Примеры использования API
+
+#### Создание игры
+
+```bash
+curl -X POST http://localhost:8000/games \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bot1_code": "import random\\nclass Bot:\\n    def __init__(self, player_id):\\n        self.player_id = player_id\\n    def choose_action(self, game):\\n        return random.choice(game.get_legal_actions()) if game.get_legal_actions() else None",
+    "bot2_code": "import random\\nclass Bot:\\n    def __init__(self, player_id):\\n        self.player_id = player_id\\n    def choose_action(self, game):\\n        return random.choice(game.get_legal_actions()) if game.get_legal_actions() else None"
+  }'
+```
+
+#### Получение состояния игры
+
+```bash
+curl http://localhost:8000/games/{game_id}
+```
+
+#### Совершение хода
+
+```bash
+curl -X POST http://localhost:8000/games/{game_id}/action \
+  -H "Content-Type: application/json" \
+  -d '{
+    "player_id": 0,
+    "action": {
+      "type": "build",
+      "template_id": "tunnel_corner",
+      "x": 0,
+      "y": -1,
+      "is_rotated_180": false
+    }
+  }'
+```
+
+### Формат состояния игры
+
+```json
+{
+  "game_id": "uuid",
+  "player_id": 0,
+  "round": 1,
+  "turn": 1,
+  "current_player": 0,
+  "scores": {"0": 0, "1": 0},
+  "hand": ["tunnel_corner", "act_key", "ladder"],
+  "broken_equipments": [],
+  "known_secrets": [],
+  "legal_actions": [
+    {"type": "build", "template_id": "tunnel_corner", "x": 0, "y": -1, "is_rotated_180": false},
+    {"type": "discard", "templates": ["tunnel_corner"]}
+  ],
+  "is_game_over": false
+}
+```
+
+---
+
+## Веб-интерфейс
+
+### Регистрация и вход
+
+1. Откройте http://localhost:8501
+2. Зарегистрируйте нового пользователя
+3. Войдите в систему
+
+### Загрузка ботов
+
+1. Перейдите на вкладку "Мои боты"
+2. Введите название бота
+3. Вставьте код Python класса с методом `choose_action(game)`
+4. Нажмите "Загрузить"
+
+### Запуск игры
+
+1. Выберите бота из списка
+2. Выберите противника (RandomAgent, HeuristicAgent, SmartAgent)
+3. Нажмите "Запустить игру"
+
+---
+
+## Структура проекта
 
 ```
 VKRtemp/
-├── requirements.txt    # Зависимости Python
-├── Dockerfile          # Docker-образ
-├── docker-compose.yml  # Docker Compose конфигурация
+├── README.md                  # Документация
+├── requirements.txt           # Зависимости Python
+├── Dockerfile                 # Docker-образ
+├── docker-compose.yml         # Docker Compose конфигурация
 └── src/
-    ├── main.py         # Интерактивная игра (CLI)
-    ├── game.py         # Игровой движок
-    ├── board.py        # Валидация и BFS
-    ├── cards.py        # Шаблоны карт
-    ├── actions.py      # Типы действий
-    ├── state.py        # Состояние игры
-    ├── registry.py     # Реестр шаблонов
-    ├── view.py         # Консольный интерфейс
-    ├── random_agent.py    # Случайный бот
-    ├── heuristic_agent.py # Умный бот
+    ├── main.py                # Интерактивная игра (CLI)
+    ├── game.py                # Игровой движок
+    ├── board.py               # Валидация и BFS
+    ├── cards.py               # Шаблоны карт
+    ├── actions.py             # Типы действий
+    ├── state.py               # Состояние игры
+    ├── registry.py            # Реестр шаблонов
+    ├── view.py                # Консольный интерфейс
+    ├── random_agent.py       # Случайный бот
+    ├── heuristic_agent.py     # Умный бот
     ├── web/
-    │   ├── app.py           # Streamlit приложение
-    │   ├── session_manager.py # Управление сессиями
-    │   ├── agent_validator.py # Валидация роботов
-    │   └── game_runner.py   # Запуск игр
+    │   ├── app.py            # Streamlit приложение
+    │   ├── api.py            # FastAPI сервер
+    │   ├── init_db.py        # Инициализация БД
+    │   ├── auth.py           # Аутентификация
+    │   ├── models.py         # Модели SQLAlchemy
+    │   ├── schemas.py        # Pydantic схемы
+    │   ├── bot_crud.py      # CRUD для ботов
+    │   ├── docker_manager.py # Управление Docker
+    │   └── game_proxy.py    # Прокси для ботов
+    ├── bot-container/
+    │   ├── Dockerfile        # Образ для бота
+    │   └── bot_server.py    # HTTP сервер бота
     └── docs/
-        ├── agent_interface.puml # UML-диаграмма интерфейса
-        ├── game_actions.puml    # UML-диаграмма действий
-        └── example_robot.py     # Пример робота для студентов
+        ├── agent_interface.puml
+        ├── game_actions.puml
+        └── example_robot.py
 ```
 
-### Запуск
-
-#### Веб-интерфейс (рекомендуется)
-
-```bash
-# Через Docker Compose
-docker-compose up -d
-
-# Открыть в браузере: http://localhost:8501
-```
-
-Или без Docker:
-
-```bash
-# Установка зависимостей
-pip install -r requirements.txt
-
-# Запуск Streamlit
-streamlit run src/web/app.py
-```
-
-#### Консольный интерфейс
-
-```bash
-cd src
-
-# Интерактивная игра (человек)
-python3 main.py
-
-# 1 игра двух ботов с подробным логом
-python3 main.py --bot-vs-bot --bot1 random --bot2 heuristic
-
-# N игр двух ботов (бенчмарк)
-python3 main.py --benchmark 100 --bot1 heuristic --bot2 random
-
-# Доступные боты: random, heuristic
-```
+---
 
 ## Создание своего робота
 
@@ -133,27 +204,30 @@ class MyRobot:
         return legal_actions[0]
 ```
 
+### Доступные методы game
+
+- `game.get_legal_actions()` - получить список легальных ходов
+- `game.get_hand()` - получить свои карты
+- `game.get_scores()` - получить текущий счёт
+- `game.get_current_player()` - узнать чей ход
+- `game.is_game_over()` - проверить окончена ли игра
+
 ### Доступные типы действий
 
-| Класс | Описание | Параметры |
-|-------|----------|-----------|
-| `ActionBuild` | Построить туннель/дверь/лестницу | `template_id, x, y, is_rotated_180` |
-| `ActionPlayBoardUtility` | Ключ/Обвал/Карта сокровищ | `template_id, x, y` |
-| `ActionPlayPlayerUtility` | Поломка/Починка | `template_id, target_player_id` |
-| `ActionDiscard` | Сброс карт | `templates, repair_equipment` |
+| Тип | Описание | Параметры |
+|-----|---------|-----------|
+| `build` | Построить туннель/дверь/лестницу | `template_id, x, y, is_rotated_180` |
+| `play_board` | Ключ/Обвал/Карта сокровищ | `template_id, x, y` |
+| `play_player` | Поломка/Починка | `template_id, target_player_id` |
+| `discard` | Сброс карт | `templates, repair_equipment` |
 
-### Пример робота
+### Примеры ботов
 
-См. файл `src/docs/example_robot.py` с примерами простого и более умного робота.
+См. `src/docs/example_robot.py`
 
-### UML-диаграммы
+---
 
-- `src/docs/agent_interface.puml` — интерфейс агента
-- `src/docs/game_actions.puml` — типы действий
-
-Визуализировать UML можно на https://www.plantuml.com/plantuml/uml/
-
-### Правила игры
+## Правила игры
 
 1. **Цель** - набрать больше золота чем противник
 2. **Ходы** - построить туннель/лестницу/дверь или использовать карту действия
@@ -162,7 +236,26 @@ class MyRobot:
 5. **Инструменты** - Лампа, Вагонетка, Кирка (все должны работать для строительства)
 6. **Конец игры** - всё золото раскрыто или колода и руки пусты
 
-### Тесты производительности
+---
+
+## Консольный запуск
+
+```bash
+cd src
+
+# Интерактивная игра (человек)
+python3 main.py
+
+# 1 игра двух ботов
+python3 main.py --bot-vs-bot --bot1 random --bot2 heuristic
+
+# N игр (бенчмарк)
+python3 main.py --benchmark 100 --bot1 heuristic --bot2 random
+```
+
+---
+
+## Тесты производительности
 
 - Игра стабильно работает без ошибок
 - HeuristicAgent выигрывает ~87% матчей против RandomAgent

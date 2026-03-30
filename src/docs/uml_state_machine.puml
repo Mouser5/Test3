@@ -1,8 +1,8 @@
-@startuml Game State Machine
+@startuml Game State Machine (1 Round)
 !theme plain
 hide empty description
 
-title Диаграмма состояний игры "Гномы-вредители: Дуэль"
+title Диаграмма состояний игры "Гномы-вредители: Дуэль" (1 раунд)
 
 skinparam state {
     BackgroundColor<<ready>> #E8F5E9
@@ -86,7 +86,7 @@ state "Проверка конца раунда" as ПроверкаРаунда
 
 state "Подсчёт очков раунда" as ПодсчётРаунда {
     state "Готов" as ScoreReady <<ready>>
-    state "Подсчёт" as ScoreBusy <<busy>>
+    state "Ожидание" as ScoreBusy <<busy>>
     state "Сохранение" as ScoreSave <<busy>>
     
     [*] --> ScoreReady
@@ -105,27 +105,13 @@ state "Проверка конца игры" as ПроверкаИгры {
     
     [*] --> GameCheckReady
     GameCheckReady --> GameCheckBusy : проверить номер раунда
-    GameCheckBusy --> GameContinue : раунд < 3
-    GameCheckBusy --> GameEnd : раунд = 3
+    GameCheckBusy --> GameContinue : раунд < 1
+    GameCheckBusy --> GameEnd : раунд = 1
     GameContinue --> [*] : новый раунд
     GameEnd --> [*] : финал
 }
 
-ПроверкаИгры --> НовыйРаунд : игра продолжается
 ПроверкаИгры --> ОпределениеПобедителя : игра окончена
-
-state "Новый раунд" as НовыйРаунд {
-    state "Готов" as NewRoundReady <<ready>>
-    state "Очистка поля" as NewRoundBusy <<busy>>
-    state "Раздача карт" as NewRoundDeal <<busy>>
-    
-    [*] --> NewRoundReady
-    NewRoundReady --> NewRoundBusy : очистить доску
-    NewRoundBusy --> NewRoundDeal : поле очищено
-    NewRoundDeal --> [*] : карты розданы
-}
-
-НовыйРаунд --> ХодИгрока0 : начать раунд
 
 state "Определение победителя" as ОпределениеПобедителя <<terminal>> {
     state "Готов" as WinnerReady <<ready>>

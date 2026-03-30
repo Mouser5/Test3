@@ -1,0 +1,59 @@
+@startuml Database Schema
+!theme plain
+hide empty methods
+hide empty fields
+
+title Схема базы данных "Гномы-вредители"
+
+skinparam linetype ortho
+skinparam padding 2
+
+package "Пользователи" {
+  class User <<entity>> {
+    + id: Integer {PK}
+    + username: String (50) {UQ, NOT NULL}
+    + email: String (100) {UQ, NOT NULL}
+    + password_hash: String (255) {NOT NULL}
+    + created_at: Timestamp
+  }
+}
+
+package "Боты" {
+  class Bot <<entity>> {
+    + id: Integer {PK}
+    + user_id: Integer {FK, NOT NULL}
+    + name: String (100) {NOT NULL}
+    + code: Text {NOT NULL}
+    + created_at: Timestamp
+  }
+}
+
+package "Результаты игр" {
+  class GameResult <<entity>> {
+    + id: Integer {PK}
+    + user_id: Integer {FK, NOT NULL}
+    + bot_id: Integer {FK}
+    + opponent_type: String (20) {NOT NULL}
+    + opponent_id: Integer {FK}
+    + result: String (10) {NOT NULL}
+    + user_score: Integer {NOT NULL}
+    + opponent_score: Integer {NOT NULL}
+    + turns: Integer {NOT NULL}
+    + played_at: Timestamp
+  }
+}
+
+User ||--o{ Bot : "владелец"
+User ||--o{ GameResult : "игрок"
+Bot ||--o{ GameResult : "используемый бот"
+Bot ||--o{ GameResult : "противник"
+
+legend right
+  |= Тип |= Обозначение |
+  | PK | Первичный ключ |
+  | FK | Внешний ключ |
+  | UQ | Уникальный |
+  | NOT NULL | Обязательное поле |
+endlegend
+
+@enduml

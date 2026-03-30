@@ -119,6 +119,64 @@ class AgentValidator:
         return True, errors
 
     @classmethod
+    def validate_agent_class_from_code(cls, code: str) -> ValidationResult:
+        import types
+        import random
+        import math
+        import sys
+
+        errors = []
+        warnings = []
+
+        module_name = "temp_validation_module"
+        try:
+            if module_name in sys.modules:
+                del sys.modules[module_name]
+
+            module = types.ModuleType(module_name)
+            sys.modules[module_name] = module
+
+            exec_globals = {
+                "__name__": module_name,
+                "random": random,
+                "math": math,
+            }
+            exec(compile(code, "<bot_code>", "exec"), exec_globals)
+
+            agent_class = None
+            for name in exec_globals:
+                obj = exec_globals[name]
+                if isinstance(obj, type) and hasattr(obj, "choose_action"):
+                    agent_class = obj
+                    break
+
+            if agent_class is None:
+                return ValidationResult(
+                    is_valid=False,
+                    errors=["Не найден класс агента с методом choose_action"],
+                    warnings=[],
+                )
+
+            result = cls.validate_agent_class(agent_class)
+            return result
+
+        except SyntaxError as e:
+            return ValidationResult(
+                is_valid=False,
+                errors=[f"Синтаксическая ошибка (строка {e.lineno}): {e.msg}"],
+                warnings=[],
+            )
+        except Exception as e:
+            return ValidationResult(
+                is_valid=False,
+                errors=[f"Ошибка при загрузке кода: {str(e)}"],
+                warnings=[],
+            )
+        finally:
+            if module_name in sys.modules:
+                del sys.modules[module_name]
+
+    @classmethod
     def get_agent_requirements_text(cls) -> str:
         return """
 ## Требования к классу агента

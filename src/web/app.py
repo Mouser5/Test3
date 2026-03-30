@@ -6,11 +6,22 @@ if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
 import streamlit as st
-from session_manager import session_manager
-from agent_validator import AgentValidator
-from game_runner import (
+from sqlalchemy.orm import Session
+from web.database import SessionLocal, init_db
+from web.schemas import UserCreate, UserLogin
+from web.auth import register_user, authenticate_user, create_access_token
+from web.bot_crud import (
+    create_bot,
+    get_user_bots,
+    get_bot_by_id,
+    delete_bot,
+    save_game_result,
+    get_user_game_history,
+    get_bot_stats,
+)
+from web.agent_validator import AgentValidator
+from web.game_runner import (
     run_single_game,
-    run_benchmark,
     BUILTIN_AGENTS,
     SingleGameResult,
     BenchmarkResult,
@@ -74,15 +85,335 @@ st.markdown(
 )
 
 
-def init_session():
-    if "session_id" not in st.session_state:
-        st.session_state.session_id = session_manager.create_session()
-    if "agent_loaded" not in st.session_state:
-        st.session_state.agent_loaded = False
-    if "agent_class" not in st.session_state:
-        st.session_state.agent_class = None
-    if "uploaded_code" not in st.session_state:
-        st.session_state.uploaded_code = None
+def init_database():
+    try:
+        init_db()
+    except Exception as e:
+        st.warning(f"БД недоступна: {e}")
+
+
+def get_db_session():
+    if "db_session" not in st.session_state:
+        st.session_state.db_session = SessionLocal()
+    return st.session_state.db_session
+
+
+def init_auth_state():
+    if "user_id" not in st.session_state:
+        st.session_state.user_id = None
+    if "username" not in st.session_state:
+        st.session_state.username = None
+    if "access_token" not in st.session_state:
+        st.session_state.access_token = None
+
+
+def login_user(db: Session, username: str, password: str):
+    user, error = authenticate_user(db, UserLogin(username=username, password=password))
+    if error:
+        return False, error
+    token = create_access_token(data={"sub": str(user.id), "username": user.username})
+    st.session_state.user_id = user.id
+    st.session_state.username = user.username
+    st.session_state.access_token = token
+    return True, ""
+
+
+def logout_user():
+    st.session_state.user_id = None
+    st.session_state.username = None
+    st.session_state.access_token = None
+    if "db_session" in st.session_state:
+        st.session_state.db_session.close()
+        del st.session_state.db_session
+
+
+def show_login(db: Session):
+    st.markdown("### 🔐 Вход в систему")
+
+    with st.form("login_form"):
+        username = st.text_input("Имя пользователя")
+        password = st.text_input("Пароль", type="password")
+        submit = st.form_submit_button("Войти", type="primary")
+
+        if submit:
+            if not username or not password:
+                st.error("Заполните все поля")
+            else:
+                success, error = login_user(db, username, password)
+                if success:
+                    st.success("Вход выполнен!")
+                    st.rerun()
+                else:
+                    st.error(error)
+
+    st.markdown("---")
+    st.markdown("### 📝 Регистрация")
+
+    with st.form("register_form"):
+        new_username = st.text_input("Новое имя пользователя")
+        new_email = st.text_input("Email")
+        new_password = st.text_input("Пароль", type="password")
+        confirm_password = st.text_input("Подтвердите пароль", type="password")
+        submit_reg = st.form_submit_button("Зарегистрироваться", type="primary")
+
+        if submit_reg:
+            if not new_username or not new_email or not new_password:
+                st.error("Заполните все поля")
+            elif new_password != confirm_password:
+                st.error("Пароли не совпадают")
+            else:
+                user, error = register_user(
+                    db,
+                    UserCreate(
+                        username=new_username, email=new_email, password=new_password
+                    ),
+                )
+                if error:
+                    st.error(error)
+                else:
+                    st.success("Регистрация успешна! Теперь войдите.")
+
+    st.markdown("---")
+    st.markdown("### 📋 Требования к роботу")
+    st.markdown(AgentValidator.get_agent_requirements_text())
+
+
+def show_dashboard(db: Session):
+    user_id = st.session_state.user_id
+
+    st.sidebar.markdown(f"### 👤 {st.session_state.username}")
+    if st.sidebar.button("🚪 Выйти", use_container_width=True):
+        logout_user()
+        st.rerun()
+
+    st.sidebar.markdown("---")
+
+    tabs = st.tabs(["🎮 Игра", "🤖 Мои боты", "📊 История", "❓ Правила"])
+
+    with tabs[0]:
+        show_game_tab(db, user_id)
+
+    with tabs[1]:
+        show_bots_tab(db, user_id)
+
+    with tabs[2]:
+        show_history_tab(db, user_id)
+
+    with tabs[3]:
+        show_requirements()
+
+
+def show_game_tab(db: Session, user_id: int):
+    from web.logger import (
+        log_game_start,
+        log_game_end,
+        log_game_error,
+        log_bot_load_for_game,
+        log_bot_loaded,
+    )
+    import uuid
+
+    st.markdown("### 🎮 Запуск игры")
+
+    user_bots = get_user_bots(db, user_id)
+    bot_options = {bot.id: bot.name for bot in user_bots}
+    bot_options[-1] = "Нет бота (человек)"
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        opponent = st.selectbox(
+            "Противник:",
+            options=list(BUILTIN_AGENTS.keys()),
+            format_func=lambda x: {
+                "random": "🎲 RandomAgent",
+                "heuristic": "🧠 HeuristicAgent",
+                "smart": "🤖 SmartAgent",
+            }.get(x, x),
+        )
+
+    if user_bots:
+        with col2:
+            selected_bot = st.selectbox(
+                "Ваш бот:",
+                options=list(bot_options.keys()),
+                format_func=lambda x: bot_options.get(x, "Выбрать бота"),
+            )
+    else:
+        st.info("У вас нет ботов. Создайте бота на вкладке 'Мои боты'")
+        return
+
+    num_games = 1
+
+    if st.button("🚀 Запустить игру", type="primary", use_container_width=True):
+        if selected_bot == -1:
+            st.warning("Выберите бота для игры")
+            return
+
+        bot = get_bot_by_id(db, selected_bot)
+        if not bot:
+            st.error("Бот не найден")
+            return
+
+        log_bot_load_for_game(bot.id, bot.name)
+
+        import random
+        import math
+
+        module_name = f"bot_{bot.id}"
+        try:
+            exec_globals = {
+                "__name__": module_name,
+                "random": random,
+                "math": math,
+            }
+            exec(compile(bot.code, f"<bot_{bot.id}>", "exec"), exec_globals)
+
+            agent_class = None
+            for name in exec_globals:
+                obj = exec_globals[name]
+                if isinstance(obj, type) and hasattr(obj, "choose_action"):
+                    agent_class = obj
+                    break
+
+            if agent_class is None:
+                log_bot_loaded(bot.id, bot.name, False)
+                st.error("Не найден класс агента с методом choose_action")
+                return
+
+            log_bot_loaded(bot.id, bot.name, True)
+        except SyntaxError as e:
+            log_bot_loaded(bot.id, bot.name, False)
+            st.error(f"Синтаксическая ошибка (строка {e.lineno}): {e.msg}")
+            return
+        except Exception as e:
+            log_bot_loaded(bot.id, bot.name, False)
+            st.error(f"Ошибка при загрузке: {str(e)}")
+            return
+
+        progress_bar = st.progress(0, text="Подготовка...")
+        progress_bar.progress(25, text="Запуск игры...")
+
+        game_id = str(uuid.uuid4())[:8]
+        log_game_start(game_id, bot.name, opponent.capitalize())
+
+        try:
+            opponent_class = BUILTIN_AGENTS[opponent]
+            result = run_single_game(
+                agent_class,
+                opponent_class,
+                agent1_name=bot.name,
+                agent2_name=opponent.capitalize(),
+            )
+
+            winner_name = result.winner_name if result.winner is not None else "Ничья"
+            log_game_end(game_id, winner_name, result.total_scores, result.turns)
+            progress_bar.progress(100, text="Готово!")
+
+        except Exception as e:
+            log_game_error(game_id, str(e))
+            progress_bar.progress(100, text="Ошибка!")
+            raise
+
+        from web.schemas import GameResultCreate
+
+        result_data = GameResultCreate(
+            bot_id=bot.id,
+            opponent_type=opponent,
+            opponent_id=None,
+            result="win"
+            if result.winner == 0
+            else ("loss" if result.winner == 1 else "draw"),
+            user_score=result.total_scores.get(0, 0),
+            opponent_score=result.total_scores.get(1, 0),
+            turns=result.turns,
+        )
+        save_game_result(db, user_id, result_data)
+
+        show_single_game_result(result)
+
+
+def show_bots_tab(db: Session, user_id: int):
+    from web.logger import log_bot_upload
+
+    st.markdown("### 🤖 Мои боты")
+
+    with st.expander("➕ Загрузить нового бота", expanded=False):
+        with st.form("upload_bot"):
+            bot_name = st.text_input("Название бота", placeholder="MySuperBot")
+            bot_code = st.text_area("Код бота (Python)", height=300)
+            submit = st.form_submit_button("Загрузить", type="primary")
+
+            if submit:
+                if not bot_name or not bot_code:
+                    st.error("Заполните все поля")
+                else:
+                    validation = AgentValidator.validate_agent_class_from_code(bot_code)
+                    if validation.is_valid:
+                        from web.schemas import BotCreate
+
+                        bot_data = BotCreate(name=bot_name, code=bot_code)
+                        bot = create_bot(db, user_id, bot_data)
+                        log_bot_upload(user_id, bot.name, bot.id)
+                        st.success(f"Бот '{bot.name}' загружен!")
+                        st.rerun()
+                    else:
+                        for error in validation.errors:
+                            st.error(error)
+
+    st.markdown("---")
+    st.markdown("#### 📂 Загруженные боты")
+
+    bots = get_user_bots(db, user_id)
+
+    if not bots:
+        st.info("У вас пока нет ботов. Загрузите первого бота!")
+        return
+
+    for bot in bots:
+        with st.expander(f"🤖 {bot.name} (ID: {bot.id})"):
+            stats = get_bot_stats(db, bot.id)
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Всего игр", stats["total"])
+            with col2:
+                st.metric("Побед", stats["wins"])
+            with col3:
+                st.metric("Поражений", stats["losses"])
+            with col4:
+                st.metric("Win Rate", f"{stats['win_rate']:.1f}%")
+
+            st.code(
+                bot.code[:500] + "..." if len(bot.code) > 500 else bot.code,
+                language="python",
+            )
+
+            if st.button("🗑️ Удалить", key=f"delete_{bot.id}"):
+                if delete_bot(db, bot.id, user_id):
+                    st.success("Бот удалён")
+                    st.rerun()
+
+
+def show_history_tab(db: Session, user_id: int):
+    st.markdown("### 📊 История игр")
+
+    history = get_user_game_history(db, user_id)
+
+    if not history:
+        st.info("У вас пока нет сыгранных игр")
+        return
+
+    for game in history:
+        with st.expander(f"Игра #{game.id} - {game.opponent_type} | {game.result}"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Ваш счёт", game.user_score)
+            with col2:
+                st.metric("Счёт противника", game.opponent_score)
+            with col3:
+                st.metric("Ходов", game.turns)
+            st.caption(f"Дата: {game.played_at}")
 
 
 def show_requirements():
@@ -131,168 +462,7 @@ end note
 """
 
     st.code(uml_code, language="plantuml", line_numbers=False)
-
-    st.info("""
-    💡 **Совет**: Используйте PlantUML-сервер или плагин IDE для визуализации диаграммы.
-    
-    Онлайн-визуализатор: https://www.plantuml.com/plantuml/uml/
-    """)
-
-
-def show_upload_section():
-    st.markdown("### 📤 Загрузка робота")
-
-    uploaded_file = st.file_uploader(
-        "Выберите файл .py с кодом вашего робота",
-        type=["py"],
-        help="Файл должен содержать класс с методом choose_action(game)",
-    )
-
-    if uploaded_file is not None:
-        code = uploaded_file.read().decode("utf-8")
-        st.session_state.uploaded_code = code
-
-        st.markdown("**Предпросмотр кода:**")
-        st.code(code, language="python", line_numbers=True)
-
-        col1, col2 = st.columns([1, 3])
-
-        with col1:
-            if st.button("✅ Проверить и загрузить", type="primary"):
-                agent_class, errors = session_manager.load_agent_from_code(
-                    st.session_state.session_id, code
-                )
-
-                if agent_class is not None:
-                    validation = AgentValidator.validate_agent_class(agent_class)
-
-                    if validation.is_valid:
-                        st.session_state.agent_class = agent_class
-                        st.session_state.agent_loaded = True
-
-                        st.markdown(
-                            """
-                        <div class="success-box">
-                            ✅ <strong>Робот успешно загружен!</strong><br>
-                            Класс: {} <br>
-                            Готов к запуску игры.
-                        </div>
-                        """.format(validation.class_name),
-                            unsafe_allow_html=True,
-                        )
-
-                        if validation.warnings:
-                            for warning in validation.warnings:
-                                st.warning(warning)
-                    else:
-                        for error in validation.errors:
-                            st.error(f"❌ {error}")
-                else:
-                    for error in errors:
-                        st.error(f"❌ {error}")
-
-        with col2:
-            if st.button("🗑️ Очистить"):
-                st.session_state.agent_loaded = False
-                st.session_state.agent_class = None
-                st.session_state.uploaded_code = None
-                st.rerun()
-
-    if st.session_state.agent_loaded:
-        st.success("✅ Робот загружен и готов к игре")
-
-
-def show_game_section():
-    st.markdown("---")
-    st.markdown("### 🎮 Запуск игры")
-
-    if not st.session_state.agent_loaded:
-        st.warning("⚠️ Сначала загрузите робота во вкладке 'Загрузка робота'")
-        return
-
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
-        game_mode = st.radio(
-            "Режим игры:",
-            options=["single", "benchmark"],
-            format_func=lambda x: (
-                "🎯 Одна подробная игра" if x == "single" else "📊 Много игр (бенчмарк)"
-            ),
-            horizontal=True,
-        )
-
-    with col2:
-        opponent = st.selectbox(
-            "Выберите противника:",
-            options=list(BUILTIN_AGENTS.keys()),
-            format_func=lambda x: {
-                "random": "🎲 RandomAgent (случайный)",
-                "heuristic": "🧠 HeuristicAgent (умный)",
-                "smart": "🤖 SmartAgent (продвинутый)",
-            }.get(x, x),
-        )
-
-    if game_mode == "benchmark":
-        num_games = st.slider(
-            "Количество игр:", min_value=10, max_value=1000, value=100, step=10
-        )
-    else:
-        num_games = 1
-
-    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
-
-    with col_btn1:
-        run_button = st.button("🚀 Запустить игру", type="primary")
-
-    with col_btn2:
-        if st.button("🔄 Сбросить результаты"):
-            if "last_result" in st.session_state:
-                del st.session_state.last_result
-            st.rerun()
-
-    if run_button:
-        agent_class = st.session_state.agent_class
-        opponent_class = BUILTIN_AGENTS[opponent]
-
-        progress_text = (
-            "Выполняется игра..."
-            if game_mode == "single"
-            else f"Выполняется {num_games} игр..."
-        )
-        progress_bar = st.progress(0, text=progress_text)
-
-        if game_mode == "single":
-            result = run_single_game(
-                agent_class,
-                opponent_class,
-                agent1_name="Ваш робот",
-                agent2_name=opponent.capitalize(),
-            )
-            st.session_state.last_result = ("single", result)
-            progress_bar.progress(100, text="Игра завершена!")
-        else:
-            progress_bar.progress(50, text="Выполнение бенчмарка...")
-            result = run_benchmark(
-                agent_class,
-                opponent_class,
-                num_games,
-                agent1_name="Ваш робот",
-                agent2_name=opponent.capitalize(),
-            )
-            st.session_state.last_result = ("benchmark", result)
-            progress_bar.progress(100, text="Бенчмарк завершён!")
-
-    if "last_result" in st.session_state:
-        mode, result = st.session_state.last_result
-
-        st.markdown("---")
-        st.markdown("### 📋 Результаты")
-
-        if mode == "single":
-            show_single_game_result(result)
-        else:
-            show_benchmark_result(result)
+    st.info("Визуализировать: https://www.plantuml.com/plantuml/uml/")
 
 
 def show_single_game_result(result: SingleGameResult):
@@ -339,80 +509,43 @@ def show_benchmark_result(result: BenchmarkResult):
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        wins_user = result.wins.get("Ваш робот", 0)
+        wins_user = sum(v for k, v in result.wins.items() if k != "draw")
         pct = 100 * wins_user / result.total_games if result.total_games > 0 else 0
-        st.metric("Побед вашего робота", f"{wins_user} ({pct:.1f}%)")
+        st.metric("Побед", f"{wins_user} ({pct:.1f}%)")
 
     with col2:
-        wins_opp = (
-            result.wins.get(list(result.wins.keys())[1], 0)
-            if len(result.wins) > 1
-            else 0
-        )
-        for key in result.wins:
-            if key not in ["Ваш робот", "draw"]:
-                wins_opp = result.wins[key]
-                break
-        pct_opp = 100 * wins_opp / result.total_games if result.total_games > 0 else 0
-        st.metric("Побед противника", f"{wins_opp} ({pct_opp:.1f}%)")
-
-    with col3:
         draws = result.wins.get("draw", 0)
         pct_draw = 100 * draws / result.total_games if result.total_games > 0 else 0
         st.metric("Ничьих", f"{draws} ({pct_draw:.1f}%)")
 
-    col4, col5, col6 = st.columns(3)
-
-    with col4:
+    with col3:
         st.metric("Всего игр", result.total_games)
 
-    with col5:
+    col4, col5 = st.columns(2)
+
+    with col4:
         st.metric("Всего ходов", result.total_turns)
 
-    with col6:
-        st.metric("Игр/сек", f"{result.games_per_second:.1f}")
+    with col5:
+        st.metric("Время", f"{result.elapsed_time:.2f} сек")
 
     if result.total_errors > 0:
-        st.warning(f"⚠️ Обнаружено {result.total_errors} ошибок при выполнении")
-
-    st.metric("Время выполнения", f"{result.elapsed_time:.2f} сек")
+        st.warning(f"⚠️ Ошибок: {result.total_errors}")
 
 
 def main():
-    init_session()
+    init_database()
+    init_auth_state()
 
     st.title("⛏️ Гномы-вредители: Дуэль")
     st.markdown("##### Карточная игра для обучения ИИ-агентов")
 
-    st.markdown("""
-    Добро пожаловать в систему тестирования роботов для игры **"Гномы-вредители: Дуэль"**!
-    
-    **Как пользоваться:**
-    1. 📖 Изучите требования к роботу во вкладке **"Правила и UML"**
-    2. 📤 Загрузите свой код во вкладке **"Загрузка робота"**
-    3. 🎮 Запустите игру и анализируйте результаты
-    """)
+    db = get_db_session()
 
-    tab1, tab2, tab3 = st.tabs(["📖 Правила и UML", "📤 Загрузка робота", "🎮 Игра"])
-
-    with tab1:
-        show_requirements()
-
-    with tab2:
-        show_upload_section()
-
-    with tab3:
-        show_game_section()
-
-    st.markdown("---")
-    st.markdown(
-        """
-    <div style="text-align: center; color: #666; font-size: 12px;">
-        Гномы-вредители: Дуэль — Система тестирования роботов | Session ID: {}
-    </div>
-    """.format(st.session_state.session_id),
-        unsafe_allow_html=True,
-    )
+    if st.session_state.user_id is None:
+        show_login(db)
+    else:
+        show_dashboard(db)
 
 
 if __name__ == "__main__":

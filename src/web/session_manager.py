@@ -1,5 +1,4 @@
 import uuid
-import importlib.util
 import sys
 from typing import Optional, Any, Dict
 from dataclasses import dataclass, field
@@ -40,36 +39,32 @@ class SessionManager:
     def load_agent_from_code(
         self, session_id: str, code: str
     ) -> tuple[Optional[type], list[str]]:
-        module_name = f"user_agent_{session_id.replace('-', '_')}"
+        module_name = f"user_agent_{session_id.replace('-', '_').replace(' ', '_')}"
 
         try:
             if module_name in sys.modules:
                 del sys.modules[module_name]
 
-            spec = importlib.util.spec_from_loader(module_name, loader=None)
-            if spec is None or spec.loader is None:
-                return None, ["Не удалось создать модуль из кода"]
+            import random
+            import math
 
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
+            exec_globals = {
+                "__name__": module_name,
+                "random": random,
+                "math": math,
+            }
+            exec(compile(code, f"<user_agent_{session_id}>", "exec"), exec_globals)
 
-            exec(compile(code, f"<user_agent_{session_id}>", "exec"), module.__dict__)
+            for name in exec_globals:
+                obj = exec_globals[name]
+                if isinstance(obj, type) and hasattr(obj, "choose_action"):
+                    agent_class = obj
+                    return agent_class, []
 
-            agent_class = self._find_agent_class(module)
-            if agent_class is None:
-                return None, [
-                    "Не найден класс агента.",
-                    "Класс должен иметь метод choose_action(game).",
-                ]
-
-            session = self.get_session(session_id)
-            if session:
-                session.agent_class = agent_class
-                session.agent_module_name = module_name
-                session.uploaded_code = code
-                session.validation_success = True
-
-            return agent_class, []
+            return None, [
+                "Не найден класс агента.",
+                "Класс должен иметь метод choose_action(game).",
+            ]
 
         except SyntaxError as e:
             error_msg = f"Синтаксическая ошибка (строка {e.lineno}): {e.msg}"

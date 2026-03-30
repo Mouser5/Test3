@@ -567,7 +567,7 @@ class Game:
         return False
 
     def is_game_over(self) -> bool:
-        return self.state.is_game_over or self.state.round_number > 3
+        return self.state.is_game_over or self.state.round_number > 1
 
     def _start_new_round(self):
         round_scores = self.calculate_scores()
@@ -577,7 +577,7 @@ class Game:
 
         self.state.round_number += 1
 
-        if self.state.round_number > 3:
+        if self.state.round_number > 1:
             self.state.is_game_over = True
             return
 

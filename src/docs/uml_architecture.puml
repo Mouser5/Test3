@@ -1,0 +1,63 @@
+@startuml System Architecture
+!theme plain
+
+title Архитектура системы "Гномы-вредители: Дуэль"
+
+skinparam linetype ortho
+skinparam componentStyle uml2
+
+package "Docker Network" {
+
+  component "game-web\n(Streamlit:8501)" as Web {
+    [Auth UI]
+    [Bot Upload]
+    [Game Runner]
+    [Dashboard]
+  }
+
+  component "game-api\n(FastAPI:8000)" as API {
+    [Game Controller]
+    [Bot Manager]
+    [State Serializer]
+  }
+
+  database "postgres\n(:5432)" as DB {
+    collections Users
+    collections Bots
+    collections GameResults
+  }
+  
+  component "bot-container*:8001" as BotContainer {
+    [Bot Server]
+    [Agent Loader]
+  }
+}
+
+User --> Web : "HTTP"
+Web --> API : "Internal"
+API --> DB : "SQLAlchemy"
+API ..> BotContainer : "Webhook (опционально)"
+BotContainer --> API : "HTTP Callback"
+
+note right of Web
+  - Регистрация/вход
+  - Загрузка ботов
+  - Запуск игры
+  - Просмотр истории
+end note
+
+note right of API
+  - CRUD операции
+  - Управление играми
+  - Валидация ходов
+  - JSON сериализация
+end note
+
+note right of BotContainer
+  - Изолированное 
+  - выполнение кода
+  - HTTP интерфейс
+  - Необязательно
+end note
+
+@enduml
