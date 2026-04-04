@@ -91,13 +91,13 @@ class Arena:
         scores = game.calculate_scores()
 
         if scores[0] > scores[1]:
-            winner = names[0]
+            winner = p0_name
         elif scores[1] > scores[0]:
-            winner = names[1]
+            winner = p1_name
         else:
             winner = "Draw"
 
-        return {"winner": winner, "scores": {names[0]: scores[0], names[1]: scores[1]}, "crash": False}
+        return {"winner": winner, "scores": {p0_name: scores[0], p1_name: scores[1]}, "crash": False}
 
     def run_tournament(self, num_seeds: int):
         """
@@ -115,20 +115,22 @@ class Arena:
 
             # Матч 1: Агент 1 (Игрок 0) vs Агент 2 (Игрок 1)
             res1 = self.play_match(match_seed, self.a1_name, self.a1_factory, self.a2_name, self.a2_factory)
-            self._process_result(res1)
+            if res1:
+                self._process_result(res1)
 
             # Матч 2: Агент 2 (Игрок 0) vs Агент 1 (Игрок 1)
             # Благодаря match_seed доска и колода будут АБСОЛЮТНО ТЕМИ ЖЕ
             res2 = self.play_match(match_seed, self.a2_name, self.a2_factory, self.a1_name, self.a1_factory)
-            self._process_result(res2)
+            if res2:
+                self._process_result(res2)
 
             if (i + 1) % 10 == 0 or (i + 1) == num_seeds:
                 logger.info(f"Прогресс: сыграно {(i + 1) * 2} / {num_seeds * 2} партий...")
 
-        self.print_results()
+            self.print_results()
 
     def _process_result(self, res: Optional[Dict]):
-        if not res or res["crash"]:
+        if not res or res.get("crash", False):
             return  # Очки при краше не начисляем
 
         if res["winner"] == "Draw":
@@ -167,15 +169,21 @@ class Arena:
 # === ПРИМЕР ИСПОЛЬЗОВАНИЯ ===
 if __name__ == "__main__":
     from random_agent import RandomAgent
+    from mcts_agent import MCTSAgent
 
-    # Для теста стравливаем двух RandomAgent, но ты заменишь одного на MCTS
+    # Пример 1: MCTS vs Random
     arena = Arena(
-        agent1_name="Random_Bot_A",
-        agent1_factory=lambda p_id: RandomAgent(player_id=p_id),
+        agent1_name="MCTS_Agent",
+        agent1_factory=lambda p_id: MCTSAgent(
+            player_id=p_id,
+            time_limit=0.3
+            # max_iterations=100,
+            # max_playouts_per_node=2
+        ),
 
-        agent2_name="Random_Bot_B",
+        agent2_name="Random_Agent",
         agent2_factory=lambda p_id: RandomAgent(player_id=p_id)
     )
 
-    # Запуск 100 сидов (200 партий)
-    arena.run_tournament(num_seeds=1000)
+    # Запуск 1 seed (2 партии) для быстрого теста
+    arena.run_tournament(num_seeds=10)

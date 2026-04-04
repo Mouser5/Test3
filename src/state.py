@@ -77,10 +77,6 @@ class MatchState:
         return new_state
 
 
-# =====================================================================
-# НОВЫЕ КЛАССЫ (Замена Pydantic для скрытия данных от агентов)
-# =====================================================================
-
 class ObservablePlayerState:
     __slots__ = ['player_id', 'hand_size', 'broken_equipments', 'hand']
 
