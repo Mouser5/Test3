@@ -183,7 +183,7 @@ class Game:
 
         player_state.hand.remove(action.template_id)
 
-        # ⬇️ НОВОЕ: сигнал об изменении доски
+        # ⬇️ ✅ ИСПРАВЛЕНИЕ ШАГ 3: инвалидируем кэш ТОЛЬКО при Build (изменения доски)
         self.state.board_update_count += 1
 
         revealed_gold = self._check_and_reveal_gold(action.x, action.y, placed)
@@ -211,14 +211,13 @@ class Game:
             return False, "Клетка пуста.", None
 
         msg = ""
+        # ⬇️ ✅ ИСПРАВЛЕНИЕ ШАГ 3: KEY не меняет доску, только состояние карты
         if template.action_type == ActionType.KEY:
             target_tpl = REGISTRY.get(target_placed.template_id)
             if not isinstance(target_tpl, DoorCardTemplate) or not target_placed.is_locked:
                 return False, "Здесь нет закрытой двери.", None
             target_placed.is_locked = False
-
-            # ⬇️ НОВОЕ: сигнал об изменении (пути открыты)
-            self.state.board_update_count += 1
+            # ⬇️ УДАЛЕНО: self.state.board_update_count += 1
             msg = f"Игрок {p_id} открыл дверь на {coord_key}."
 
         elif template.action_type == ActionType.ROCKFALL:
@@ -237,7 +236,7 @@ class Game:
 
             del self.state.board[coord_key]
 
-            # ⬇️ НОВОЕ: сигнал об изменении доски
+            # ⬇️ ✅ ИСПРАВЛЕНИЕ ШАГ 3: ROCKFALL МЕНЯЕТ ДОСКУ, инвалидируем
             self.state.board_update_count += 1
             msg = f"Обвал на {coord_key}!"
 
@@ -248,186 +247,7 @@ class Game:
 
             # ⬇️ ИЗМЕНЕНИЕ: сохраняем КОРТЕЖ
             player_state.known_secrets.add(coord_key)
-            msg = f"[СЕКРЕТ] Под {coord_key} спрятано {target_tpl.gold_value} слитков!"
-
-        player_state.hand.remove(action.template_id)
-        if self.state.deck:
-            player_state.hand.append(self.state.deck.pop())
-
-        return True, msg, None
-
-    def _handle_player_utility(
-            self, action: ActionPlayPlayerUtility
-    ) -> Tuple[bool, str, Optional[int]]:
-        """Обработка действий на игрока (поломка, починка)."""
-        p_id = self.state.current_player_id
-        player_state = self.state.players[p_id]
-
-        if action.template_id not in player_state.hand:
-            return False, "Такой карты нет в руке.", None
-
-        template = REGISTRY.get(action.template_id)
-        target_state = self.state.players[action.target_player_id]
-        eq = template.equipment_type
-        msg = ""
-
-        if template.action_type == ActionType.SABOTAGE:
-            if eq in target_state.broken_equipments:
-                return False, "Уже сломано.", None
-            target_state.broken_equipments.add(eq)
-            msg = f"Игрок {p_id} сломал {eq.value} игроку {action.target_player_id}."
-
-        elif template.action_type == ActionType.REPAIR:
-            if eq not in target_state.broken_equipments:
-                return False, "Не сломано.", None
-            target_state.broken_equipments.remove(eq)
-            msg = f"Игрок {p_id} починил {eq.value} игроку {action.target_player_id}."
-
-        player_state.hand.remove(action.template_id)
-        if self.state.deck:
-            player_state.hand.append(self.state.deck.pop())
-
-        return True, msg, None
-
-    def _handle_discard(self, action: ActionDiscard) -> Tuple[bool, str, Optional[int]]:
-        """Обработка сброса карт."""
-        p_id = self.state.current_player_id
-        state = self.state.players[p_id]
-
-        if action.repair_equipment:
-            if len(action.templates) != 2:
-                return False, "Нужно 2 карты для экстренной починки.", None
-            if action.repair_equipment not in state.broken_equipments:
-                return False, "Предмет не сломан.", None
-            state.broken_equipments.remove(action.repair_equipment)
-            msg = f"Экстренная починка {action.repair_equipment.value}."
-        else:
-            msg = f"Сброшено карт: {len(action.templates)}."
-
-        # ⬇️ ИЗМЕНЕНИЕ: templates теперь кортеж
-        for tpl in action.templates:
-            if tpl in state.hand:
-                state.hand.remove(tpl)
-            else:
-                return False, f"Карты {tpl} нет в руке.", None
-
-        cards_to_draw = 1 if action.repair_equipment else len(action.templates)
-        for _ in range(cards_to_draw):
-            if self.state.deck:
-                state.hand.append(self.state.deck.pop())
-
-        return True, msg, None
-
-    def _handle_build(self, action: ActionBuild) -> Tuple[bool, str, Optional[int]]:
-        """Обработка постройки."""
-        p_id = self.state.current_player_id
-        player_state = self.state.players[p_id]
-
-        if action.template_id not in player_state.hand:
-            return False, "Такой карты нет в руке.", None
-
-        template = REGISTRY.get(action.template_id)
-
-        if not isinstance(
-                template, (TunnelCardTemplate, DoorCardTemplate, LadderCardTemplate)
-        ):
-            return False, "Нельзя строить эту карту.", None
-
-        if player_state.broken_equipments:
-            return False, "Инвентарь сломан!", None
-
-        placed = PlacedCard(
-            template_id=action.template_id,
-            owner_id=p_id,
-            is_rotated_180=action.is_rotated_180,
-        )
-        if isinstance(template, DoorCardTemplate):
-            placed.is_locked = True
-
-        # ⬇️ ИЗМЕНЕНИЕ: используем кортеж как ключ
-        coord_key = (action.x, action.y)
-
-        # ⬇️ ИЗМЕНЕНИЕ: передаём template_id, не PlacedCard
-        if not self.board_engine.is_move_valid(
-                action.x, action.y, action.template_id, action.is_rotated_180,
-                self.start_positions[p_id], p_id,
-                self.state.board, player_state.ladders
-        ):
-            return False, "Ход недопустим.", None
-
-        self.state.board[coord_key] = placed
-
-        # ⬇️ НОВОЕ: добавляем лестницу в кэш
-        if isinstance(template, LadderCardTemplate):
-            player_state.ladders.add(coord_key)  # ⬇️ КОРТЕЖ!
-
-        player_state.hand.remove(action.template_id)
-
-        # ⬇️ НОВОЕ: сигнал об изменении доски
-        self.state.board_update_count += 1
-
-        revealed_gold = self._check_and_reveal_gold(action.x, action.y, placed)
-        if self.state.deck:
-            player_state.hand.append(self.state.deck.pop())
-
-        return True, f"Игрок {p_id} построил на {coord_key}.", revealed_gold
-
-    def _handle_board_utility(
-            self, action: ActionPlayBoardUtility
-    ) -> Tuple[bool, str, Optional[int]]:
-        """Обработка действий на поле (ключ, обвал, карта сокровищ)."""
-        p_id = self.state.current_player_id
-        player_state = self.state.players[p_id]
-
-        if action.template_id not in player_state.hand:
-            return False, "Такой карты нет в руке.", None
-
-        template = REGISTRY.get(action.template_id)
-        # ⬇️ ИЗМЕНЕНИЕ: кортеж как ключ
-        coord_key = (action.x, action.y)
-        target_placed = self.state.board.get(coord_key)
-
-        if not target_placed:
-            return False, "Клетка пуста.", None
-
-        msg = ""
-        if template.action_type == ActionType.KEY:
-            target_tpl = REGISTRY.get(target_placed.template_id)
-            if not isinstance(target_tpl, DoorCardTemplate) or not target_placed.is_locked:
-                return False, "Здесь нет закрытой двери.", None
-            target_placed.is_locked = False
-
-            # ⬇️ НОВОЕ: сигнал об изменении (пути открыты)
-            self.state.board_update_count += 1
-            msg = f"Игрок {p_id} открыл дверь на {coord_key}."
-
-        elif template.action_type == ActionType.ROCKFALL:
-            # ⬇️ ИЗМЕНЕНИЕ: передаём template_id
-            if not self.board_engine.is_move_valid(
-                    action.x, action.y, action.template_id, False,
-                    self.start_positions[p_id], p_id, self.state.board,
-                    player_state.ladders
-            ):
-                return False, "Нельзя обвалить.", None
-
-            obval_tpl = REGISTRY.get(target_placed.template_id)
-            if isinstance(obval_tpl, LadderCardTemplate) and target_placed.owner_id in self.state.players:
-                # ⬇️ Удаляем лестницу из кэша
-                self.state.players[target_placed.owner_id].ladders.discard(coord_key)
-
-            del self.state.board[coord_key]
-
-            # ⬇️ НОВОЕ: сигнал об изменении доски
-            self.state.board_update_count += 1
-            msg = f"Обвал на {coord_key}!"
-
-        elif template.action_type == ActionType.MAP:
-            target_tpl = REGISTRY.get(target_placed.template_id)
-            if not isinstance(target_tpl, GoldCardTemplate) or target_placed.is_revealed:
-                return False, "Здесь нет скрытого золота.", None
-
-            # ⬇️ ИЗМЕНЕНИЕ: сохраняем КОРТЕЖ
-            player_state.known_secrets.add(coord_key)
+            # ⬇️ УДАЛЕНО: self.state.board_update_count += 1
             msg = f"[СЕКРЕТ] Под {coord_key} спрятано {target_tpl.gold_value} слитков!"
 
         player_state.hand.remove(action.template_id)

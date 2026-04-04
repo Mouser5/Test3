@@ -491,5 +491,5 @@ def main():
 
 if __name__ == "__main__":
     # main()
-    # run_benchmark("random", "random", 100)
-    run_benchmark_with_profile("random", "random", 100)
+    # run_benchmark("random", "random", 10)
+    run_benchmark_with_profile("random", "random", 50)
