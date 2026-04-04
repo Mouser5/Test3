@@ -178,29 +178,13 @@ def setup_global_registry():
 
     # 5. Золото с разными конфигурациями выходов
     # Каждый номинал имеет несколько вариантов направления
-    gold_configs = [
-        # Номинал 1 - 2 карты
-        ("gold_1_ud", "Gold 1 Up-Down", (True, True, False, False), 1),
-        ("gold_1_lr", "Gold 1 Left-Right", (False, False, True, True), 1),
-        # Номинал 2 - 2 карты
-        ("gold_2_corner", "Gold 2 Corner", (False, True, True, False), 2),
-        ("gold_2_t", "Gold 2 T-Junction", (True, True, True, False), 2),
-        # Номинал 3 - 2 карты
-        ("gold_3_cross", "Gold 3 Cross", (True, True, True, True), 3),
-        ("gold_3_t", "Gold 3 T-Junction", (True, True, False, True), 3),
-    ]
-
-    for g_id, name, ops, val in gold_configs:
-        REGISTRY.register(
-            GoldCardTemplate(
-                id=g_id,
-                name=name,
-                openings=CardOpenings(
-                    up=ops[0], down=ops[1], left=ops[2], right=ops[3]
-                ),
-                gold_value=val,
-            )
-        )
+    for val in [1, 2, 3]:
+        REGISTRY.register(GoldCardTemplate(
+            id=f"gold_val_{val}",
+            name=f"Gold {val}",
+            openings=CardOpenings(up=True, down=True, left=True, right=True),
+            gold_value=val
+        ))
 
     REGISTRY.register(
         GoldCardTemplate(

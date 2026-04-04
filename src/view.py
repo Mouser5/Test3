@@ -109,8 +109,9 @@ class ConsoleView:
         print("\nПоле:")
         min_x, max_x, min_y, max_y = -3, 3, -10, 1
 
+        # ⬇️ ИСПРАВЛЕНИЕ: k уже кортеж (x, y)
         for k in state.board.keys():
-            x, y = BoardEngine.str_to_coord(k)
+            x, y = k  # ⬇️ Просто распаковка кортежа
             min_x, max_x = min(min_x, x - 1), max(max_x, x + 1)
             min_y, max_y = min(min_y, y - 1), max(max_y, y + 1)
 
@@ -123,7 +124,8 @@ class ConsoleView:
         for y in range(max_y, min_y - 1, -1):
             line = f"{y:2} |" if len(str(y)) <= 2 else f"{y:2}|"
             for x in range(min_x, max_x + 1):
-                k = BoardEngine.coord_to_str(x, y)
+                # ⬇️ ИСПРАВЛЕНИЕ: k теперь кортеж
+                k = (x, y)
                 placed = state.board.get(k)
                 if placed:
                     line += f" {ConsoleView.render_placed_card(placed)} "

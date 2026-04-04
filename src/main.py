@@ -17,6 +17,93 @@ from registry import REGISTRY
 from random_agent import RandomAgent
 from heuristic_agent import HeuristicAgent, SmartAgent
 
+import cProfile
+import pstats
+from io import StringIO
+
+
+def run_benchmark_with_profile(bot1_name: str, bot2_name: str, num_games: int = 100) -> Dict:
+    """Бенчмарк с профилированием для выявления узких мест."""
+
+    bot1_cls = BOT_REGISTRY.get(bot1_name.lower())
+    bot2_cls = BOT_REGISTRY.get(bot2_name.lower())
+
+    if not bot1_cls or not bot2_cls:
+        raise ValueError(f"Неизвестный бот. Доступные: {list(BOT_REGISTRY.keys())}")
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+
+    start_time = time.perf_counter()
+    total_turns = 0
+    games_completed = 0
+
+    for game_idx in range(num_games):
+        game = Game()
+        agents = {0: bot1_cls(0), 1: bot2_cls(1)}
+
+        try:
+            while not game.is_game_over():
+                while not game.is_round_over():
+                    curr_p = game.state.current_player_id
+                    try:
+                        action = agents[curr_p].choose_action(game)
+                        if not action:
+                            game.state.current_player_id = 1 - curr_p
+                            continue
+
+                        success, msg, _ = game.step(action)
+                        if not success:
+                            logger.warning(f"Game {game_idx}: Ход отклонён: {msg}")
+                        total_turns += 1
+                    except Exception as e:
+                        logger.error(f"Game {game_idx}: Ошибка хода робота: {e}")
+                        game.state.current_player_id = 1 - game.state.current_player_id
+
+                game.check_round_end()
+
+            games_completed += 1
+
+        except Exception as e:
+            logger.critical(f"Критическая ошибка в игре {game_idx}: {e}")
+
+    profiler.disable()
+    elapsed = time.perf_counter() - start_time
+
+    # Вывод статистики профилирования
+    s = StringIO()
+    ps = pstats.Stats(profiler, stream=s).sort_stats('cumulative')
+    ps.print_stats(20)  # Топ 20 функций
+    print("\n" + "=" * 80)
+    print("ПРОФИЛИРОВАНИЕ (TOP 20 по времени выполнения)")
+    print("=" * 80)
+    print(s.getvalue())
+
+    tps = total_turns / elapsed if elapsed > 0 else 0
+    gps = games_completed / elapsed if elapsed > 0 else 0
+
+    print("\n" + "=" * 80)
+    print(f"Сыграно партий: {games_completed}")
+    print(f"Всего ходов: {total_turns}")
+    print(f"Ходов/сек: {tps:.0f}")
+    print(f"Партий/сек: {gps:.1f}")
+    print(f"Время: {elapsed:.2f} сек")
+    print("=" * 80)
+
+    return {
+        "tps": tps,
+        "gps": gps,
+        "elapsed": elapsed,
+        "total_turns": total_turns
+    }
+
+#
+# if __name__ == "__main__":
+#     # Запустите профилирование
+#     run_benchmark_with_profile("random", "random", 50)
+
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
@@ -403,4 +490,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    # run_benchmark("random", "random", 100)
+    run_benchmark_with_profile("random", "random", 100)
