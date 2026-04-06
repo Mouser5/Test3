@@ -1,6 +1,17 @@
 services:
+  redis:
+    image: redis:8.6.2
+    container_name: gnomes-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   postgres:
-    image: postgres:latest
+    image: postgres:17.9
     container_name: gnomes-postgres
     environment:
       POSTGRES_USER: gnomes
@@ -50,12 +61,15 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/src
       - DATABASE_URL=postgresql://gnomes:gnomes_secret@postgres:5432/gnomes_game
+      - REDIS_URL=redis://redis:6379/0
       - LOG_DIR=/app/logs
     depends_on:
       postgres:
         condition: service_healthy
       game-api:
         condition: service_started
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

@@ -7,6 +7,7 @@ class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
     password: str = Field(..., min_length=6)
+    role: str = "admin"
 
 
 class UserLogin(BaseModel):
@@ -18,6 +19,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     email: str
+    role: str
     created_at: datetime
 
     class Config:

@@ -46,6 +46,10 @@ class HeuristicAgent:
         action = self._select_best_action(game, legal_actions)
         return action
 
+    def _get_actual_template_id(self, game: Game, card_id) -> Optional[str]:
+        """Get actual template_id from card_id."""
+        return game.state.players[self.player_id].card_id_to_template.get(card_id)
+
     def _select_best_action(
         self, game: Game, legal_actions: List[AgentAction]
     ) -> AgentAction:
@@ -59,7 +63,11 @@ class HeuristicAgent:
                 a
                 for a in legal_actions
                 if isinstance(a, ActionPlayPlayerUtility)
-                and REGISTRY.get(a.template_id).action_type == ActionType.REPAIR
+                and self._get_actual_template_id(game, a.template_id) is not None
+                and REGISTRY.get(
+                    self._get_actual_template_id(game, a.template_id)
+                ).action_type
+                == ActionType.REPAIR
                 and a.target_player_id == self.player_id
             ]
             if repair_actions:
@@ -72,7 +80,11 @@ class HeuristicAgent:
             a
             for a in legal_actions
             if isinstance(a, ActionPlayBoardUtility)
-            and REGISTRY.get(a.template_id).action_type == ActionType.MAP
+            and self._get_actual_template_id(game, a.template_id) is not None
+            and REGISTRY.get(
+                self._get_actual_template_id(game, a.template_id)
+            ).action_type
+            == ActionType.MAP
         ]
         if map_actions:
             best_map = self._choose_best_map_action(game, map_actions)
@@ -84,7 +96,11 @@ class HeuristicAgent:
             a
             for a in legal_actions
             if isinstance(a, ActionPlayBoardUtility)
-            and REGISTRY.get(a.template_id).action_type == ActionType.KEY
+            and self._get_actual_template_id(game, a.template_id) is not None
+            and REGISTRY.get(
+                self._get_actual_template_id(game, a.template_id)
+            ).action_type
+            == ActionType.KEY
         ]
         if key_actions:
             return random.choice(key_actions)
@@ -101,7 +117,11 @@ class HeuristicAgent:
             a
             for a in legal_actions
             if isinstance(a, ActionPlayPlayerUtility)
-            and REGISTRY.get(a.template_id).action_type == ActionType.SABOTAGE
+            and self._get_actual_template_id(game, a.template_id) is not None
+            and REGISTRY.get(
+                self._get_actual_template_id(game, a.template_id)
+            ).action_type
+            == ActionType.SABOTAGE
             and a.target_player_id == opponent_id
         ]
         if sabotage_actions:
@@ -112,7 +132,11 @@ class HeuristicAgent:
             a
             for a in legal_actions
             if isinstance(a, ActionPlayBoardUtility)
-            and REGISTRY.get(a.template_id).action_type == ActionType.ROCKFALL
+            and self._get_actual_template_id(game, a.template_id) is not None
+            and REGISTRY.get(
+                self._get_actual_template_id(game, a.template_id)
+            ).action_type
+            == ActionType.ROCKFALL
         ]
         if rockfall_actions:
             best_rockfall = self._choose_best_rockfall(
@@ -126,9 +150,16 @@ class HeuristicAgent:
             a
             for a in legal_actions
             if isinstance(a, ActionPlayPlayerUtility)
-            and REGISTRY.get(a.template_id).action_type == ActionType.REPAIR
+            and self._get_actual_template_id(game, a.template_id) is not None
+            and REGISTRY.get(
+                self._get_actual_template_id(game, a.template_id)
+            ).action_type
+            == ActionType.REPAIR
             and a.target_player_id == opponent_id
-            and REGISTRY.get(a.template_id).equipment_type
+            and self._get_actual_template_id(game, a.template_id) is not None
+            and REGISTRY.get(
+                self._get_actual_template_id(game, a.template_id)
+            ).equipment_type
             in opponent_state.broken_equipments
         ]
         if harmful_repair:
@@ -152,7 +183,12 @@ class HeuristicAgent:
 
         for action in build_actions:
             score = 0
-            tpl = REGISTRY.get(action.template_id)
+            actual_template_id = game.state.players[
+                self.player_id
+            ].card_id_to_template.get(action.template_id)
+            if actual_template_id is None:
+                continue
+            tpl = REGISTRY.get(actual_template_id)
 
             # Бонус за построение к золоту
             gold_distance = self._distance_to_nearest_unrevealed_gold(
@@ -229,7 +265,12 @@ class HeuristicAgent:
         best_priority = -1
 
         for action in sabotage_actions:
-            tpl = REGISTRY.get(action.template_id)
+            actual_template_id = game.state.players[
+                self.player_id
+            ].card_id_to_template.get(action.template_id)
+            if actual_template_id is None:
+                continue
+            tpl = REGISTRY.get(actual_template_id)
             eq = tpl.equipment_type
             priority = equipment_priority.get(eq, 0)
             if priority > best_priority:
@@ -464,7 +505,6 @@ def test_smart_vs_random(num_games: int = 100):
 
 
 if __name__ == "__main__":
-
     print("Используйте main.py для запуска игр:")
     print("  python main.py --bot-vs-bot --bot1 heuristic --bot2 random")
     print("  python main.py --benchmark 100 --bot1 smart --bot2 random")

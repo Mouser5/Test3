@@ -1,0 +1,66 @@
+@startuml DSL-Sequence-Diagram
+!theme plain
+skinparam monochrome true
+skinparam sequenceParticipant underline
+
+actor "Player (Bot)" as Bot
+participant "DSLEncoder" as Encoder
+participant "Game State" as State
+participant "DSLDecoder" as Decoder
+participant "Validator" as Validator
+database "Game Server" as Server
+
+note over Bot
+  Bot receives game state as DSL string
+end note
+
+Server -> Bot: Game State (DSL format)
+note right
+  x;y card_id is_rotated
+  p0 broken_ids
+  p1 broken_ids
+  hand_size
+  card_id1;card_id2;...
+end note
+
+Bot -> Encoder: Parse game state
+Encoder -> State: Extract board positions
+Encoder -> State: Extract hand cards
+Encoder -> State: Extract broken equipments
+
+State --> Bot: Structured game state
+
+note over Bot
+  Bot decides which action to take:
+  - PASS (code 0)
+  - BUILD (code 1)
+  - REPAIR (code 2)
+  - DISCARD (code 3)
+end note
+
+Bot -> Decoder: Encode action to DSL string
+note right
+  Operation code + parameters
+  
+  BUILD example:
+  1
+  96
+  -2;0
+  0
+end note
+
+Decoder --> Bot: DSL action string
+
+Bot -> Server: Send action (DSL string)
+
+Server -> Validator: Validate action
+alt Action is valid
+    Validator -> Server: Valid
+    Server -> Bot: New game state (DSL)
+else Action is invalid
+    Validator -> Server: Invalid
+    Server -> Bot: Error message
+    Bot -> Bot: Choose new action
+end
+
+@enduml

@@ -6,7 +6,7 @@ from typing import Optional
 import os
 from sqlalchemy.orm import Session
 
-from web.models import User
+from web.models import User, UserRole
 from web.schemas import UserCreate, UserLogin
 
 SECRET_KEY = os.getenv("SECRET_KEY", "gnomes-secret-key-change-in-production")
@@ -60,10 +60,14 @@ def register_user(db: Session, user_data: UserCreate) -> tuple[Optional[User], s
         return None, "Email уже зарегистрирован"
 
     hashed_password = get_password_hash(user_data.password)
+
+    role = UserRole.admin if user_data.role == "admin" else UserRole.player
+
     db_user = User(
         username=user_data.username,
         email=user_data.email,
         password_hash=hashed_password,
+        role=role,
     )
 
     db.add(db_user)
@@ -82,6 +86,7 @@ def authenticate_user(db: Session, login_data: UserLogin) -> tuple[Optional[User
     if not verify_password(login_data.password, user.password_hash):
         return None, "Неверный пароль"
 
+    user.role = user.role.value if hasattr(user.role, "value") else str(user.role)
     return user, ""
 
 

@@ -1,0 +1,89 @@
+@startuml DSL-GameState-Diagram
+!theme plain
+skinparam state {
+    backgroundColor white
+    borderColor black
+    fontName Monospaced
+}
+skinparam monochrome true
+
+[*] --> InitialState : Game starts
+
+state InitialState {
+    [*] --> WaitForPlayer
+    
+    state BoardSetup {
+        [*] --> PlaceGold
+        PlaceGold --> PlaceStartPoints
+    }
+    
+    WaitForPlayer --> DealCards : Deal initial cards
+    DealCards --> PlayerTurn
+}
+
+state PlayerTurn {
+    [*] --> AwaitAction
+    
+    AwaitAction --> BuildCard : BUILD operation
+    AwaitAction --> RepairTool : REPAIR operation
+    AwaitAction --> DiscardCards : DISCARD operation
+    AwaitAction --> PassTurn : PASS operation (empty hand)
+    
+    BuildCard --> ValidateAction
+    RepairTool --> ValidateAction
+    DiscardCards --> ValidateAction
+    PassTurn --> ValidateAction
+}
+
+state ValidateAction {
+    [*] --> CheckLegality
+    
+    CheckLegality --> Valid : Action is legal
+    CheckLegality --> Invalid : Action is illegal
+    
+    Valid --> ExecuteAction
+    Invalid --> AwaitAction : Retry
+}
+
+state ExecuteAction {
+    [*] --> ApplyChanges
+    
+    ApplyChanges --> UpdateBoard : BUILD
+    ApplyChanges --> UpdateEquipment : REPAIR
+    ApplyChanges --> RemoveCards : DISCARD
+    ApplyChanges --> NextPlayer : PASS
+    
+    UpdateBoard --> CheckWinCondition
+    UpdateEquipment --> CheckWinCondition
+    RemoveCards --> CheckWinCondition
+    NextPlayer --> CheckWinCondition
+}
+
+state CheckWinCondition {
+    [*] --> CheckGoldCollected
+    CheckGoldCollected --> GameOver : All gold collected
+    CheckGoldCollected --> CheckTurnLimit : Otherwise
+    
+    CheckTurnLimit --> GameOver : Turn limit reached
+    CheckTurnLimit --> DealCards : Continue game
+}
+
+GameOver --> [*] : Game ends
+
+note right of PlayerTurn
+  DSL Operation Codes:
+  - 0 = PASS
+  - 1 = BUILD
+  - 2 = REPAIR
+  - 3 = DISCARD
+end note
+
+note right of ValidateAction
+  Validation checks:
+  - Card in hand
+  - Valid position
+  - Equipment broken (for repair)
+  - Max 2 cards (for discard)
+end note
+
+@enduml
