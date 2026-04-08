@@ -36,7 +36,7 @@ services:
       - "8000:8000"
     volumes:
       - ./src:/app/src
-      - logs:/app/logs
+      - ./logs_api:/app/logs
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/src
@@ -56,7 +56,7 @@ services:
       - "8501:8501"
     volumes:
       - ./src:/app/src
-      - logs:/app/logs
+      - ./logs:/app/logs
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/src
@@ -75,3 +75,4 @@ services:
 volumes:
   postgres_data:
   logs:
+  logs_api:
