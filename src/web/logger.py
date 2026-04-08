@@ -1,9 +1,7 @@
 import sys
-import os
+from config import LOG_DIR
 from loguru import logger
-from pathlib import Path
 
-LOG_DIR = Path(os.getenv("LOG_DIR", "/app/logs"))
 LOG_DIR.mkdir(exist_ok=True)
 
 logger.remove()

@@ -1,13 +1,13 @@
-import os
 import pickle
 import uuid
 from typing import Optional, Dict, Any, List
+from config import REDIS_URL
 import redis
 
 
 class GameRedisManager:
     def __init__(self, redis_url: Optional[str] = None):
-        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        self.redis_url = redis_url or REDIS_URL
         self._client: Optional[redis.Redis] = None
 
     @property

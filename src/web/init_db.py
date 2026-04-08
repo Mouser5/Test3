@@ -1,10 +1,7 @@
-import os
 import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://gnomes:gnomes_secret@localhost:5432/gnomes_game"
-)
+from config import DATABASE_URL
 
 
 def create_tables():
@@ -12,7 +9,8 @@ def create_tables():
     conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             username VARCHAR(50) UNIQUE NOT NULL,
@@ -21,9 +19,11 @@ def create_tables():
             role VARCHAR(20) DEFAULT 'admin' NOT NULL,
             created_at TIMESTAMP DEFAULT NOW()
         );
-    """)
+    """
+    )
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS bots (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -31,9 +31,11 @@ def create_tables():
             code TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT NOW()
         );
-    """)
+    """
+    )
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS game_results (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -46,9 +48,11 @@ def create_tables():
             turns INTEGER NOT NULL,
             played_at TIMESTAMP DEFAULT NOW()
         );
-    """)
+    """
+    )
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS tournaments (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -57,9 +61,11 @@ def create_tables():
             created_at TIMESTAMP DEFAULT NOW(),
             completed_at TIMESTAMP
         );
-    """)
+    """
+    )
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS tournament_games (
             id SERIAL PRIMARY KEY,
             tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
@@ -74,9 +80,11 @@ def create_tables():
             turns INTEGER DEFAULT 0,
             played_at TIMESTAMP DEFAULT NOW()
         );
-    """)
+    """
+    )
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS tournament_results (
             id SERIAL PRIMARY KEY,
             tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
@@ -88,7 +96,8 @@ def create_tables():
             total_score INTEGER DEFAULT 0,
             games_played INTEGER DEFAULT 0
         );
-    """)
+    """
+    )
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_bots_user_id ON bots(user_id);")
     cursor.execute(
@@ -106,9 +115,11 @@ def migrate_role_column():
     cursor = conn.cursor()
 
     try:
-        cursor.execute("""
+        cursor.execute(
+            """
             ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'admin' NOT NULL;
-        """)
+        """
+        )
         print("✅ Колонка role добавлена")
     except psycopg2.errors.DuplicateColumn:
         print("⚠️ Колонка role уже существует")

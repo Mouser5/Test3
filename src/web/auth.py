@@ -3,13 +3,12 @@ import secrets
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from typing import Optional
-import os
+from config import SECRET_KEY
 from sqlalchemy.orm import Session
 
 from web.models import User, UserRole
 from web.schemas import UserCreate, UserLogin
 
-SECRET_KEY = os.getenv("SECRET_KEY", "gnomes-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
