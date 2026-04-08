@@ -27,6 +27,18 @@ docker compose up --build -d
 # - PostgreSQL: localhost:5111 (5432 inside container)
 ```
 
+Также, при запуске необходимо создать файл `.env`, содержащий переменные:
+
+```bash
+GAME_API_URL="http://game-api:8000"
+SECRET_KEY="gnomes-secret-key-change-in-production"
+DATABASE_URL="postgresql://gnomes:gnomes_secret@localhost:5432/gnomes_game"
+LOG_DIR="./logs"
+REDIS_URL="redis://localhost:6379/0"
+```
+
+(Значения переменных примерные)
+
 ---
 
 ## Архитектура
