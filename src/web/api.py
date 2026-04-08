@@ -3,8 +3,6 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import uuid
 
-from dotenv import load_dotenv
-
 src_path = Path(__file__).parent.parent
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
@@ -31,7 +29,6 @@ from dsl_parser import (
     DSLActionValidator,
 )
 
-load_dotenv()
 
 app = FastAPI(
     title="Гномы-вредители: API",
@@ -133,9 +130,11 @@ def game_to_json(game: Game, player_id: int) -> Dict[str, Any]:
             action_dict.update(
                 {
                     "templates": action.templates,
-                    "repair_equipment": action.repair_equipment.value
-                    if action.repair_equipment
-                    else None,
+                    "repair_equipment": (
+                        action.repair_equipment.value
+                        if action.repair_equipment
+                        else None
+                    ),
                 }
             )
 

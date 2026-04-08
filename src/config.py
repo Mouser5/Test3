@@ -1,6 +1,9 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()
 
 GAME_API_URL = os.getenv("GAME_API_URL", "http://game-api:8000")
 SECRET_KEY = os.getenv("SECRET_KEY", "gnomes-secret-key-change-in-production")
