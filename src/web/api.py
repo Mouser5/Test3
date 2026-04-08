@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import uuid
 
+from dotenv import load_dotenv
+
 src_path = Path(__file__).parent.parent
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
@@ -29,6 +31,7 @@ from dsl_parser import (
     DSLActionValidator,
 )
 
+load_dotenv()
 
 app = FastAPI(
     title="Гномы-вредители: API",
