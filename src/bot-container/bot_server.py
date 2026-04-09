@@ -1,11 +1,13 @@
+import os
 import sys
 import importlib.util
-from config import GAME_API_URL
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any
 import uvicorn
 import requests
+
+GAME_API_URL = os.getenv("GAME_API_URL", "http://game-api:8000")
 
 app = FastAPI()
 
