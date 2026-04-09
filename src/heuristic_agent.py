@@ -125,7 +125,7 @@ class HeuristicAgent:
             and a.target_player_id == opponent_id
         ]
         if sabotage_actions:
-            return self._pick_best_sabotage(sabotage_actions, opponent_state)
+            return self._pick_best_sabotage(sabotage_actions, opponent_state, game)
 
         # === ПРИОРИЕТ 6: Использовать обвал для блокировки ===
         rockfall_actions = [
@@ -251,7 +251,7 @@ class HeuristicAgent:
         return best_action
 
     def _pick_best_sabotage(
-        self, sabotage_actions: List[ActionPlayPlayerUtility], opponent_state
+        self, sabotage_actions: List[ActionPlayPlayerUtility], opponent_state, game: Game
     ) -> ActionPlayPlayerUtility:
         """Выбираем, какой инструмент сломать"""
         # Приоритет: ломать то, что у противника еще работает

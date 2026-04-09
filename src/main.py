@@ -266,7 +266,8 @@ def interactive_loop(game: Game, view: ConsoleView):
                 c_idx = int(input("Введите номер карты из руки: "))
                 p_id = game.state.current_player_id
                 t_id = game.state.players[p_id].hand[c_idx]
-                tpl = REGISTRY.get(t_id)
+                tpl_id = game.state.players[p_id].card_id_to_template[t_id]
+                tpl = REGISTRY.get(tpl_id)
 
                 action = None
                 if isinstance(tpl, PathCardTemplate) or (
