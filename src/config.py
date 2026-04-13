@@ -12,3 +12,6 @@ DATABASE_URL = os.getenv(
 )
 LOG_DIR = Path(os.getenv("LOG_DIR", "/app/logs"))
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@example.com")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme123")
