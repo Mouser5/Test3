@@ -56,7 +56,7 @@ def register_user(db: Session, user_data: UserCreate) -> tuple[Optional[User], s
     if existing:
         if existing.username == user_data.username:
             return None, "Имя пользователя уже занято"
-        return None, "Email уже зарегистрирован"
+        return None, "Неверная регистрация"
 
     hashed_password = get_password_hash(user_data.password)
 
