@@ -127,7 +127,31 @@ def migrate_role_column():
         cursor.close()
         conn.close()
 
+def ensure_default_admin():
+    from config import ADMIN_USERNAME, ADMIN_EMAIL, ADMIN_PASSWORD
+    from web.auth import create_default_admin_if_not_exists
+
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM users LIMIT 1")
+    conn.close()
+
+    from web.models import SessionLocal
+    db = SessionLocal()
+    try:
+        admin = create_default_admin_if_not_exists(
+            db, ADMIN_USERNAME, ADMIN_EMAIL, ADMIN_PASSWORD
+        )
+        if admin:
+            print(f"Admin account ready: {admin.username}")
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     create_tables()
     migrate_role_column()
+    ensure_default_admin()
+
+
+

@@ -56,7 +56,7 @@ def register_user(db: Session, user_data: UserCreate) -> tuple[Optional[User], s
     if existing:
         if existing.username == user_data.username:
             return None, "Имя пользователя уже занято"
-        return None, "Email уже зарегистрирован"
+        return None, "Неверная регистрация"
 
     hashed_password = get_password_hash(user_data.password)
 
@@ -91,3 +91,23 @@ def authenticate_user(db: Session, login_data: UserLogin) -> tuple[Optional[User
 
 def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
     return db.query(User).filter(User.id == user_id).first()
+
+
+def create_default_admin_if_not_exists(
+    db: Session, username: str, email: str, password: str
+) -> Optional[User]:
+    existing = db.query(User).filter(User.role == UserRole.admin).first()
+    if existing:
+        return existing
+
+    hashed_password = get_password_hash(password)
+    admin = User(
+        username=username,
+        email=email,
+        password_hash=hashed_password,
+        role=UserRole.admin,
+    )
+    db.add(admin)
+    db.commit()
+    db.refresh(admin)
+    return admin
