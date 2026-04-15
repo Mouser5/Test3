@@ -90,12 +90,76 @@ def _format_action(action: AgentAction, game: Game) -> str:
     return str(action.type)
 
 
+def action_to_dsl(action: AgentAction, player_id: int) -> str:
+    lines = [f"P{player_id}"]
+
+    if isinstance(action, ActionBuild):
+        lines.append("1")
+        lines.append(str(action.template_id))
+        lines.append(f"{action.x};{action.y}")
+        lines.append("1" if action.is_rotated_180 else "0")
+    elif isinstance(action, ActionPlayBoardUtility):
+        lines.append("1")
+        lines.append(str(action.template_id))
+        lines.append(f"{action.x};{action.y}")
+        lines.append("0")
+    elif isinstance(action, ActionPlayPlayerUtility):
+        lines.append("2")
+        lines.append(str(action.template_id))
+        lines.append(str(action.target_player_id))
+        lines.append("0")
+    elif isinstance(action, ActionDiscard):
+        lines.append("3")
+        if action.templates:
+            lines.append(";".join(str(t) for t in action.templates))
+        else:
+            lines.append("")
+        lines.append("0")
+    else:
+        lines.append("0")
+        lines.append("")
+        lines.append("")
+        lines.append("0")
+
+    return "\n".join(lines)
+
+
+def save_game_log_to_db(
+    db_session,
+    game_id: str,
+    dsl_log: str,
+    scores_p0: int,
+    scores_p1: int,
+    winner: Optional[int],
+    turns: int,
+    bot1_code: Optional[str] = None,
+    bot2_code: Optional[str] = None,
+):
+    from web.models import GameLog
+
+    game_log = GameLog(
+        game_id=game_id,
+        bot1_code=bot1_code,
+        bot2_code=bot2_code,
+        dsl_log=dsl_log,
+        scores_p0=scores_p0,
+        scores_p1=scores_p1,
+        winner=winner,
+        turns=turns,
+    )
+    db_session.add(game_log)
+    db_session.commit()
+
+
 def run_single_game(
     agent1_class: type,
     agent2_class: type,
     agent1_name: str = "Агент 1",
     agent2_name: str = "Агент 2",
     verbose: bool = True,
+    db_session=None,
+    game_id: str = None,
+    save_to_db: bool = False,
 ) -> SingleGameResult:
     game = Game()
     agents = {
@@ -107,6 +171,7 @@ def run_single_game(
     errors: List[str] = []
     round_scores: List[Dict[int, int]] = []
     turn_count = 0
+    dsl_lines: List[str] = []
 
     while not game.is_game_over():
         while not game.is_round_over():
@@ -126,11 +191,14 @@ def run_single_game(
                             message="Пропуск хода",
                         )
                     )
+                    dsl_lines.append(f"P{curr_p}\n0\n\n\n0")
                     game.state.current_player_id = 1 - curr_p
                     continue
 
                 success, msg, rev_gold = game.step(action)
                 turn_count += 1
+
+                dsl_lines.append(action_to_dsl(action, curr_p))
 
                 agent_name = agent1_name if curr_p == 0 else agent2_name
                 action_desc = _format_action(action, game)
@@ -181,6 +249,18 @@ def run_single_game(
     elif total_scores[1] > total_scores[0]:
         winner = 1
         winner_name = agent2_name
+
+    if save_to_db and db_session and game_id:
+        dsl_log = "\n".join(dsl_lines)
+        save_game_log_to_db(
+            db_session=db_session,
+            game_id=game_id,
+            dsl_log=dsl_log,
+            scores_p0=total_scores[0],
+            scores_p1=total_scores[1],
+            winner=winner,
+            turns=turn_count,
+        )
 
     return SingleGameResult(
         winner=winner,
@@ -330,6 +410,7 @@ def run_tournament(
         TournamentGame,
         TournamentResult as TournamentResultModel,
         TournamentStatus,
+        User,
     )
     from web.logger import log_tournament_end, log_tournament_game
 
@@ -511,6 +592,15 @@ def run_tournament(
             games_played=stats["games"],
         )
         db_session.add(tr)
+
+    sorted_results = sorted(results.items(), key=lambda x: x[1]["wins"], reverse=True)
+    if sorted_results:
+        top_bot_stats = sorted_results[0][1]
+        if top_bot_stats["games"] > 0:
+            user = db_session.query(User).filter(User.id == user_id).first()
+            if user:
+                user.winrate = int(top_bot_stats["wins"] / top_bot_stats["games"] * 100)
+                db_session.commit()
 
     tournament.status = TournamentStatus.completed
     db_session.commit()

@@ -1,4 +1,5 @@
 import sys
+import os
 from pathlib import Path
 
 src_path = Path(__file__).parent.parent
@@ -43,6 +44,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
 
 def display_scrollable_code(code: str, height: int = 300):
     st.code(code, language="python")
@@ -239,7 +241,15 @@ def show_dashboard(db: Session):
 
     if user_role == "admin":
         tabs = st.tabs(
-            ["🎮 Игра", "🤖 Мои боты", "🏆 Турнир", "🤖 Все боты", "📊 История", "⚙️ Администрирование", "❓ Правила"]
+            [
+                "🎮 Игра",
+                "🤖 Мои боты",
+                "🏆 Турнир",
+                "🤖 Все боты",
+                "📊 История",
+                "⚙️ Администрирование",
+                "❓ Правила",
+            ]
         )
 
         with tabs[0]:
@@ -547,7 +557,9 @@ def show_bots_tab(db: Session, user_id: int):
             bot_code = ""
 
             with code_tabs[0]:
-                bot_code = st.text_area("Код бота (Python)", height=300, key="user_bot_code")
+                bot_code = st.text_area(
+                    "Код бота (Python)", height=300, key="user_bot_code"
+                )
 
             with code_tabs[1]:
                 uploaded_file = st.file_uploader(
@@ -557,7 +569,9 @@ def show_bots_tab(db: Session, user_id: int):
                 )
                 if uploaded_file:
                     bot_code = uploaded_file.getvalue().decode("utf-8")
-                    st.success(f"Загружено: {uploaded_file.name} ({len(bot_code)} символов)")
+                    st.success(
+                        f"Загружено: {uploaded_file.name} ({len(bot_code)} символов)"
+                    )
 
             submit = st.form_submit_button("Загрузить", type="primary")
 
@@ -620,7 +634,9 @@ def show_history_tab(db: Session, user_id: int):
         return
 
     for idx, game in enumerate(history, start=1):
-        result_icon = "✅" if game.result == "win" else ("❌" if game.result == "loss" else "🤝")
+        result_icon = (
+            "✅" if game.result == "win" else ("❌" if game.result == "loss" else "🤝")
+        )
         with st.expander(f"Игра #{idx} — {result_icon} vs {game.opponent_type}"):
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -650,7 +666,7 @@ def show_all_bots_tab(db: Session, user_id: int):
         with st.expander(f"👤 {username} ({len(bots)} ботов)"):
             for bot in bots:
                 stats = get_bot_stats(db, bot.id)
-                
+
                 with st.expander(f"🤖 {bot.name} (ID: {bot.id})"):
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
@@ -677,7 +693,9 @@ def show_all_history_tab(db: Session, user_id: int):
         return
 
     for game in history:
-        result_icon = "✅" if game.result == "win" else ("❌" if game.result == "loss" else "🤝")
+        result_icon = (
+            "✅" if game.result == "win" else ("❌" if game.result == "loss" else "🤝")
+        )
         with st.expander(
             f"Игра #{game.id} — {result_icon} | user_id={game.user_id} | vs {game.opponent_type}"
         ):
@@ -717,7 +735,7 @@ def show_admin_panel(db: Session):
                     new_role = "player" if user.role == "admin" else "admin"
                     if st.button(f"→ {new_role}", key=f"role_{user.id}"):
                         if update_user_role(db, user.id, new_role):
-                            st.success(f"Роль изменена")
+                            st.success("Роль изменена")
                             st.rerun()
                         else:
                             st.error("Ошибка")
@@ -735,7 +753,9 @@ def show_admin_panel(db: Session):
                 if not new_username or not new_email or not new_password:
                     st.error("Заполните все поля")
                 else:
-                    user, error = create_user_by_admin(db, new_username, new_email, new_password)
+                    user, error = create_user_by_admin(
+                        db, new_username, new_email, new_password
+                    )
                     if error:
                         st.error(error)
                     else:
@@ -750,20 +770,26 @@ def show_admin_panel(db: Session):
             st.info("Нет загруженных ботов")
         else:
             from collections import defaultdict
+
             bots_by_user = defaultdict(list)
             for bot in all_bots:
-                bots_by_user[bot['username']].append(bot)
-            
+                bots_by_user[bot["username"]].append(bot)
+
             for username, bots in bots_by_user.items():
                 with st.expander(f"👤 {username} ({len(bots)} ботов)"):
                     for bot in bots:
                         with st.expander(f"🤖 {bot['bot_name']} (ID: {bot['bot_id']})"):
                             col1, col2 = st.columns([1, 1])
                             with col1:
-                                st.write(f"**Создан:** {bot['created_at'].strftime('%d.%m.%Y %H:%M')}")
+                                st.write(
+                                    f"**Создан:** {bot['created_at'].strftime('%d.%m.%Y %H:%M')}"
+                                )
                             with col2:
-                                if st.button("🗑️ Удалить бота", key=f"admin_delete_bot_{bot['bot_id']}"):
-                                    if delete_bot_by_admin(db, bot['bot_id']):
+                                if st.button(
+                                    "🗑️ Удалить бота",
+                                    key=f"admin_delete_bot_{bot['bot_id']}",
+                                ):
+                                    if delete_bot_by_admin(db, bot["bot_id"]):
                                         st.success("Бот удалён")
                                         st.rerun()
                                     else:
@@ -793,7 +819,9 @@ def show_admin_panel(db: Session):
                 bot_code = ""
 
                 with code_input_tabs[0]:
-                    bot_code = st.text_area("Код бота (Python)", height=300, key="admin_bot_code")
+                    bot_code = st.text_area(
+                        "Код бота (Python)", height=300, key="admin_bot_code"
+                    )
 
                 with code_input_tabs[1]:
                     uploaded_file = st.file_uploader(
@@ -803,7 +831,9 @@ def show_admin_panel(db: Session):
                     )
                     if uploaded_file:
                         bot_code = uploaded_file.getvalue().decode("utf-8")
-                        st.success(f"Загружено: {uploaded_file.name} ({len(bot_code)} символов)")
+                        st.success(
+                            f"Загружено: {uploaded_file.name} ({len(bot_code)} символов)"
+                        )
 
                 submit = st.form_submit_button("Загрузить", type="primary")
 
@@ -811,10 +841,16 @@ def show_admin_panel(db: Session):
                     if not bot_name or not bot_code:
                         st.error("Заполните все поля")
                     else:
-                        validation = AgentValidator.validate_agent_class_from_code(bot_code)
+                        validation = AgentValidator.validate_agent_class_from_code(
+                            bot_code
+                        )
                         if validation.is_valid:
-                            bot = create_bot_for_user(db, selected_user_id, bot_name, bot_code)
-                            st.success(f"Бот '{bot.name}' создан для {user_options[selected_user_id]}")
+                            bot = create_bot_for_user(
+                                db, selected_user_id, bot_name, bot_code
+                            )
+                            st.success(
+                                f"Бот '{bot.name}' создан для {user_options[selected_user_id]}"
+                            )
                             st.rerun()
                         else:
                             for error in validation.errors:
@@ -826,48 +862,14 @@ def show_requirements():
 
     st.markdown("### 📊 UML-диаграмма интерфейса агента")
 
-    uml_code = """
-@startuml
-skinparam classAttributeIconSize 0
-skinparam monochrome true
-
-interface "<<interface>>\\nAgentInterface" as IAgent {
-    + player_id: int
-    + choose_action(game: Game): Optional[AgentAction]
-}
-
-class RandomAgent {
-    - player_id: int
-    + choose_action(game: Game): Optional[AgentAction]
-}
-
-class HeuristicAgent {
-    - player_id: int
-    - logger: Logger
-    + choose_action(game: Game): Optional[AgentAction]
-    - _select_best_action(game, actions): AgentAction
-    - _choose_best_build_action(game, actions): ActionBuild
-}
-
-class "Ваш робот" as UserAgent <<custom>> {
-    - player_id: int
-    + choose_action(game: Game): Optional[AgentAction]
-}
-
-IAgent <|.. RandomAgent
-IAgent <|.. HeuristicAgent
-IAgent <|.. UserAgent
-
-note right of UserAgent
-  Вы должны реализовать
-  класс с таким интерфейсом
-end note
-
-@enduml
-"""
-
-    st.code(uml_code, language="plantuml", line_numbers=False)
-    st.info("Визуализировать: https://www.plantuml.com/plantuml/uml/")
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    svg_path = os.path.join(base_dir, "docs", "rules.svg")
+    if os.path.exists(svg_path):
+        st.image(
+            svg_path, caption="Диаграмма интерфейса агента", use_container_width=True
+        )
+    else:
+        st.warning("Диаграмма не найдена")
 
 
 def show_single_game_result(result: SingleGameResult):

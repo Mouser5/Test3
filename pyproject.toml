@@ -5,7 +5,20 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "asyncpg>=0.29.0",
+    "bcrypt>=4.1.0",
+    "docker>=7.0.0",
     "dotenv>=0.9.9",
-    "pydantic>=2.12.5",
-    "streamlit>=1.55.0",
+    "fastapi>=0.100.0",
+    "passlib>=1.7.4",
+    "psycopg2-binary>=2.9.0",
+    "pydantic[email]>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "pytest>=9.0.3",
+    "python-jose>=3.3.0",
+    "requests>=2.31.0",
+    "sqlalchemy>=2.0.0",
+    "streamlit>=1.28.0",
+    "uvicorn>=0.25.0",
+    "loguru>=0.7.0",
 ]
