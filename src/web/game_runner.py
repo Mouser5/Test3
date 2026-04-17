@@ -35,6 +35,7 @@ class GameLog:
     player_id: int
     action_type: str
     action_description: str
+    action_dsl: str | None = None
     message: str
     gold_found: Optional[int] = None
 
@@ -72,8 +73,10 @@ class TournamentResult:
 
 def _format_action(action: AgentAction, game: Game) -> str:
     tpl_id = getattr(action, "template_id", None)
-    tpl = REGISTRY.get(tpl_id) if tpl_id else None
-    tpl_name = tpl.name if tpl else tpl_id
+    _tpl_id = game.get_template_by_card_id(tpl_id)
+    
+    tpl = REGISTRY.get(_tpl_id) if _tpl_id else None
+    tpl_name = tpl.name if tpl else _tpl_id
 
     if isinstance(action, ActionBuild):
         rot = " (повёрнута)" if action.is_rotated_180 else ""
