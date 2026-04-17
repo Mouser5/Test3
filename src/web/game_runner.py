@@ -35,8 +35,8 @@ class GameLog:
     player_id: int
     action_type: str
     action_description: str
+    message: str | None = None
     action_dsl: str | None = None
-    message: str
     gold_found: Optional[int] = None
 
 
