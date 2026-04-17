@@ -1,0 +1,169 @@
+@startuml rules_ru
+
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+
+title Правила игры "Гномы-вредители: Дуэль"
+
+package "Операции бота" {
+    class Agent {
+        +__init__(player_id: int)
+        +choose_action(game_state): AgentAction | None
+    }
+    
+    class "Game" as Game {
+        +get_legal_actions(): List[AgentAction]
+        +get_hand(): List[int]
+        +get_scores(): Dict[int, int]
+        +get_current_player(): int
+        +is_game_over(): bool
+        +state: MatchState
+    }
+    
+    Agent --> Game : вызывает методы
+}
+
+package "Доступные действия" {
+    class ActionBuild {
+        +type: str = "build"
+        +template_id: int
+        +x: int
+        +y: int
+        +is_rotated_180: bool
+    }
+    
+    class ActionPlayBoardUtility {
+        +type: str = "play_board_utility"
+        +template_id: int
+        +x: int
+        +y: int
+    }
+    
+    class ActionPlayPlayerUtility {
+        +type: str = "play_player_utility"
+        +template_id: int
+        +target_player_id: int
+    }
+    
+    class ActionDiscard {
+        +type: str = "discard"
+        +templates: List[int]
+        +repair_equipment: Optional[EquipmentType]
+    }
+    
+    AgentAction <|-- ActionBuild
+    AgentAction <|-- ActionPlayBoardUtility
+    AgentAction <|-- ActionPlayPlayerUtility
+    AgentAction <|-- ActionDiscard
+}
+
+package "ID карт (статические)" {
+    class CardIDs <<static>> {
+        {static} +get_deck_ids(): List[int]
+        {static} +get_gold_ids(): List[int]
+        {static} +get_start_ids(): List[int]
+        {static} +get_template_by_id(id: int): str
+    }
+    
+    note right of CardIDs
+        Колода: 1-96 (96 карт)
+        Золото: 8001-8012 (12 карт)
+        Старт: 9001-9002 (2 карты)
+        Всего: 101 карт
+    end note
+    
+    class IDMapping <<table>> {
+        {field} ID: int
+        {field} Template: str
+        {field} Description: str
+    }
+    
+    CardIDs --> IDMapping
+}
+
+package "Состояние игры (state)" {
+    class MatchState {
+        +board: Dict[str, PlacedCard]
+        +players: Dict[int, PlayerState]
+        +current_player_id: int
+        +deck: List[int]
+        +total_scores: Dict[int, int]
+        +round_number: int
+    }
+    
+    class PlayerState {
+        +player_id: int
+        +hand: List[int]
+        +broken_equipments: Set[EquipmentType]
+        +card_id_to_template: Dict[int, str]
+    }
+    
+    MatchState *-- PlayerState
+    Game *-- MatchState
+}
+
+package "Оборудование" {
+    enum EquipmentType {
+        LAMP
+        CART
+        PICKAXE
+    }
+    
+    PlayerState *-- EquipmentType
+}
+
+package "Типы карт" {
+    class TunnelCards <<static>> {
+        tunnel_cross: 1-10
+        tunnel_t: 11-20
+        tunnel_straight: 21-28
+        tunnel_corner: 29-38
+        tunnel_deadend: 39-42
+        tunnel_bridge: 43-46
+        tunnel_double_corner: 47-50
+        tunnel_split_t_up: 51-54
+        tunnel_split_t_l: 55-58
+    }
+    
+    class DoorCards <<static>> {
+        door_blue: 59-61
+        door_green: 62-64
+    }
+    
+    class LadderCards <<static>> {
+        ladder: 65-68
+    }
+    
+    class ActionCards <<static>> {
+        act_boom: 69-71
+        act_key: 72-74
+        act_map: 75-78
+    }
+    
+    class ToolCards <<static>> {
+        brk_LAMP: 79-81
+        brk_CART: 82-84
+        brk_PICKAXE: 85-87
+        rep_LAMP: 88-90
+        rep_CART: 91-94
+        rep_PICKAXE: 94-96
+    }
+    
+    class GoldCards <<static>> {
+        gold_1_ud: 8001-8002
+        gold_1_lr: 8003-8004
+        gold_2_corner: 8005-8006
+        gold_2_t: 8007-8008
+        gold_3_cross: 8009-8010
+        gold_3_t: 8011-8012
+    }
+    
+    class StartCards <<static>> {
+        start_blue: 9001
+        start_green: 9002
+    }
+}
+
+@enduml

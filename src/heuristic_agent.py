@@ -251,7 +251,10 @@ class HeuristicAgent:
         return best_action
 
     def _pick_best_sabotage(
-        self, sabotage_actions: List[ActionPlayPlayerUtility], opponent_state, game: Game
+        self,
+        sabotage_actions: List[ActionPlayPlayerUtility],
+        opponent_state,
+        game: Game,
     ) -> ActionPlayPlayerUtility:
         """Выбираем, какой инструмент сломать"""
         # Приоритет: ломать то, что у противника еще работает
@@ -332,11 +335,13 @@ class HeuristicAgent:
         """Выбираем лучший сброс - избавляемся от бесполезных карт"""
         player_state = game.state.players[self.player_id]
 
-        # Карты, которые бесполезны когда все инструменты работают
         useless_when_healthy = []
         if not player_state.broken_equipments:
             for t_id in player_state.hand:
-                tpl = REGISTRY.get(t_id)
+                template_id = player_state.card_id_to_template.get(t_id)
+                if not template_id:
+                    continue
+                tpl = REGISTRY.get(template_id)
                 if hasattr(tpl, "action_type") and tpl.action_type == ActionType.REPAIR:
                     useless_when_healthy.append(t_id)
 
@@ -347,20 +352,20 @@ class HeuristicAgent:
             score = 0
             templates = action.templates
 
-            # Штраф за сброс полезных карт
             for t_id in templates:
                 if t_id in useless_when_healthy:
-                    score += 10  # Хорошо сбросить бесполезное
+                    score += 10
 
-            # Бонус за сброс карт, которые нельзя использовать
-            # (например, строить когда сломаны инструменты)
             if player_state.broken_equipments:
                 for t_id in templates:
-                    tpl = REGISTRY.get(t_id)
+                    template_id = player_state.card_id_to_template.get(t_id)
+                    if not template_id:
+                        continue
+                    tpl = REGISTRY.get(template_id)
                     if isinstance(
                         tpl, (TunnelCardTemplate, DoorCardTemplate, LadderCardTemplate)
                     ):
-                        score += 15  # Хорошо сбросить, чтобы взять полезные
+                        score += 15
 
             if score > best_score:
                 best_score = score

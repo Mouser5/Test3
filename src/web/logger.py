@@ -53,6 +53,8 @@ def log_tournament_end(
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    sorted_results = sorted(results.items(), key=lambda x: x[1]["wins"], reverse=True)
+
     logger.info("=" * 60)
     logger.info(f"🏆 ТУРНИР ЗАВЕРШЕН | {timestamp}")
     logger.info(f"   ID: {tournament_id}")
@@ -63,7 +65,7 @@ def log_tournament_end(
     logger.info("-" * 60)
     logger.info("📊 РЕЗУЛЬТАТЫ:")
 
-    for bot_name, stats in results.items():
+    for bot_name, stats in sorted_results:
         win_rate = (stats["wins"] / stats["games"] * 100) if stats["games"] > 0 else 0
         logger.info(
             f"   {bot_name}: "

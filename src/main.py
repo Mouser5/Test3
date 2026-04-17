@@ -1,7 +1,9 @@
 import argparse
+import os
 import time
 import logging
 from typing import Dict, Type
+import uuid
 
 from game import Game
 from view import ConsoleView
@@ -50,6 +52,60 @@ def _format_action(action: AgentAction, game: Game) -> str:
     return action.type
 
 
+def action_to_dsl(action: AgentAction, player_id: int) -> str:
+    lines = [f"P{player_id}"]
+
+    if isinstance(action, ActionBuild):
+        lines.append("1")
+        lines.append(str(action.template_id))
+        lines.append(f"{action.x};{action.y}")
+        lines.append("1" if action.is_rotated_180 else "0")
+    elif isinstance(action, ActionPlayBoardUtility):
+        lines.append("1")
+        lines.append(str(action.template_id))
+        lines.append(f"{action.x};{action.y}")
+        lines.append("0")
+    elif isinstance(action, ActionPlayPlayerUtility):
+        lines.append("2")
+        lines.append(str(action.template_id))
+        lines.append(str(action.target_player_id))
+        lines.append("0")
+    elif isinstance(action, ActionDiscard):
+        lines.append("3")
+        if action.templates:
+            lines.append(";".join(str(t) for t in action.templates))
+        else:
+            lines.append("")
+        lines.append("0")
+    else:
+        lines.append("0")
+        lines.append("")
+        lines.append("")
+        lines.append("0")
+
+    return "\n".join(lines)
+
+
+def save_game_log_to_file(
+    dsl_log: str, winner: int, scores: Dict[int, int], turns: int
+):
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    game_id = str(uuid.uuid4())[:8]
+    filename = f"game_{game_id}.txt"
+    filepath = os.path.join(log_dir, filename)
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(dsl_log)
+        f.write("\n\n# Game Over\n")
+        f.write(f"# Winner: P{winner}\n")
+        f.write(f"# Scores: P0={scores[0]}, P1={scores[1]}\n")
+        f.write(f"# Turns: {turns}\n")
+
+    return filepath
+
+
 def run_bot_match(bot1_name: str, bot2_name: str, verbose: bool = True) -> Dict:
     game = Game()
     view = ConsoleView() if verbose else None
@@ -72,6 +128,7 @@ def run_bot_match(bot1_name: str, bot2_name: str, verbose: bool = True) -> Dict:
 
     turn_count = 0
     errors = []
+    dsl_lines: list = []
 
     while not game.is_game_over():
         while not game.is_round_over():
@@ -81,6 +138,7 @@ def run_bot_match(bot1_name: str, bot2_name: str, verbose: bool = True) -> Dict:
             try:
                 action = agent.choose_action(game)
                 if not action:
+                    dsl_lines.append(f"P{curr_p}\n0\n\n\n0")
                     if verbose and view:
                         print(f"\nИгрок {curr_p} не имеет легальных ходов. Пропуск.")
                     game.state.current_player_id = 1 - curr_p
@@ -88,6 +146,8 @@ def run_bot_match(bot1_name: str, bot2_name: str, verbose: bool = True) -> Dict:
 
                 success, msg, rev_gold = game.step(action)
                 turn_count += 1
+
+                dsl_lines.append(action_to_dsl(action, curr_p))
 
                 if not success:
                     error_msg = f"Ошибка хода робота: Игрок {curr_p}, действие {action.type}, причина: {msg}"
@@ -153,6 +213,15 @@ def run_bot_match(bot1_name: str, bot2_name: str, verbose: bool = True) -> Dict:
             print(f"Победитель: {winner}")
         else:
             print("Ничья!")
+
+    dsl_log = "\n".join(dsl_lines)
+    winner_idx = (
+        0
+        if total_scores[0] > total_scores[1]
+        else (1 if total_scores[1] > total_scores[0] else -1)
+    )
+    log_path = save_game_log_to_file(dsl_log, winner_idx, total_scores, turn_count)
+    print(f"\n📝 Лог игры сохранён в: {log_path}")
 
     return result
 
