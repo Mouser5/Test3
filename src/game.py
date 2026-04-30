@@ -140,10 +140,19 @@ class Game:
         player.hand = card_ids.copy()
         player.card_id_to_template = dict(zip(card_ids, template_ids))
 
-    def step(self, action: AgentAction) -> Tuple[bool, str, Optional[int]]:
+    def step(self, action: AgentAction) -> Tuple[bool, str, Optional[int], str]:
         if self.is_game_over():
-            return False, "Игра уже окончена.", None
-
+            return False, "Игра уже окончена.", None,""
+        template_id=""
+        if not isinstance(action, ActionDiscard):
+            p_id = self.state.current_player_id
+            player_state = self.state.players[p_id]
+            lookup_key = (
+                int(action.template_id)
+                if isinstance(action.template_id, str)
+                else action.template_id
+            )
+            template_id = player_state.card_id_to_template.get(lookup_key)
         if isinstance(action, ActionBuild):
             success, msg, rev_gold = self._handle_build(action)
         elif isinstance(action, ActionPlayBoardUtility):
@@ -153,13 +162,13 @@ class Game:
         elif isinstance(action, ActionDiscard):
             success, msg, rev_gold = self._handle_discard(action)
         else:
-            return False, "Неизвестный тип действия.", None
+            return False, "Неизвестный тип действия.", None,""
 
         if success:
             self.state.current_player_id = 1 - self.state.current_player_id
             self.state.turn_number += 1
 
-        return success, msg, rev_gold
+        return success, msg, rev_gold,template_id
 
     def _handle_build(self, action: ActionBuild) -> Tuple[bool, str, Optional[int]]:
         p_id = self.state.current_player_id
@@ -579,7 +588,7 @@ class Game:
                             )
                             break
 
-        print(f"   [GAME DEBUG] Returning {len(legal_actions)} legal actions")
+        # print(f"   [GAME DEBUG] Returning {len(legal_actions)} legal actions")
         return legal_actions
 
     def get_observation(self, target_player_id: int) -> ObservableMatchState:
@@ -635,7 +644,7 @@ class Game:
         return False
 
     def is_game_over(self) -> bool:
-        return self.state.is_game_over or self.state.round_number > 1
+        return self.state.is_game_over or self.state.round_number > 2
 
     def _start_new_round(self):
         round_scores = self.calculate_scores()
@@ -645,7 +654,7 @@ class Game:
 
         self.state.round_number += 1
 
-        if self.state.round_number > 1:
+        if self.state.round_number > 2:
             self.state.is_game_over = True
             return
 

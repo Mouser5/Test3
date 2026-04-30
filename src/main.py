@@ -15,7 +15,8 @@ from actions import (
 )
 from registry import REGISTRY
 from random_agent import RandomAgent
-from heuristic_agent import HeuristicAgent, SmartAgent
+from heuristic_agent import HeuristicAgent
+from smart_agent import SmartAgent
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,8 +31,8 @@ BOT_REGISTRY: Dict[str, Type] = {
 }
 
 
-def _format_action(action: AgentAction, game: Game) -> str:
-    tpl_id = getattr(action, "template_id", None)
+def _format_action(action: AgentAction, game: Game, tpl_id) -> str:
+    # tpl_id = getattr(action, "template_id", None)
     tpl = REGISTRY.get(tpl_id) if tpl_id else None
     tpl_name = tpl.name if tpl else tpl_id
 
@@ -86,7 +87,7 @@ def run_bot_match(bot1_name: str, bot2_name: str, verbose: bool = True) -> Dict:
                     game.state.current_player_id = 1 - curr_p
                     continue
 
-                success, msg, rev_gold = game.step(action)
+                success, msg, rev_gold, template_id = game.step(action)
                 turn_count += 1
 
                 if not success:
@@ -98,7 +99,7 @@ def run_bot_match(bot1_name: str, bot2_name: str, verbose: bool = True) -> Dict:
 
                 if verbose and view:
                     bot_name = bot1_name if curr_p == 0 else bot2_name
-                    action_desc = _format_action(action, game)
+                    action_desc = _format_action(action, game, template_id)
                     print(
                         f"Ход {turn_count} (Раунд {game.state.round_number}): Игрок {curr_p} ({bot_name}) -> {action_desc}"
                     )
@@ -185,7 +186,8 @@ def run_benchmark(bot1_name: str, bot2_name: str, num_games: int) -> Dict:
                             game.state.current_player_id = 1 - curr_p
                             continue
 
-                        success, msg, _ = game.step(action)
+                        success, msg, _, _ = game.step(action)
+                        # print(msg)
                         if not success:
                             total_errors += 1
                             logger.warning(f"Game {game_idx}: Ход отклонён: {msg}")
@@ -405,3 +407,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # run_bot_match("heuristic", "smart", True)
+    #run_benchmark("heuristic", "smart",300)
