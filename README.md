@@ -35,6 +35,9 @@ SECRET_KEY="gnomes-secret-key-change-in-production"
 DATABASE_URL="postgresql://gnomes:gnomes_secret@localhost:5432/gnomes_game"
 LOG_DIR="./logs"
 REDIS_URL="redis://localhost:6379/0"
+ADMIN_USERNAME="admin"
+ADMIN_EMAIL="admin@example.com"
+ADMIN_PASSWORD="changeme123"
 ```
 
 (Значения переменных примерные)
@@ -319,22 +322,75 @@ class MyRobot:
         return legal_actions[0]
 ```
 
+**Примечание:** Параметр метода `choose_action` может называться произвольно: `game`, `play`, `state`, `g`, `gs`, `game_state`, `player`.
+
 ### Доступные методы game
 
 - `game.get_legal_actions()` - получить список легальных ходов
-- `game.get_hand()` - получить свои карты
+- `game.get_hand()` - получить свои карты (ID карт)
 - `game.get_scores()` - получить текущий счёт
 - `game.get_current_player()` - узнать чей ход
 - `game.is_game_over()` - проверить окончена ли игра
+
+### Доступ к состоянию игрока
+
+```python
+player_state = game.state.players[self.player_id]
+hand = player_state.hand  # Список ID карт в руке
+card_id_to_template = player_state.card_id_to_template  # Dict[int, str] - маппинг ID -> template_id
+broken = player_state.broken_equipments  # Сломанное оборудование
+```
 
 ### Доступные типы действий
 
 | Тип | Описание | Параметры |
 |-----|---------|-----------|
-| `build` | Построить туннель/дверь/лестницу | `template_id, x, y, is_rotated_180` |
-| `play_board` | Ключ/Обвал/Карта сокровищ | `template_id, x, y` |
-| `play_player` | Поломка/Починка | `template_id, target_player_id` |
-| `discard` | Сброс карт | `templates, repair_equipment` |
+| `ActionBuild` | Построить туннель/дверь/лестницу | `template_id, x, y, is_rotated_180` |
+| `ActionPlayBoardUtility` | Ключ/Обвал/Карта сокровищ | `template_id, x, y` |
+| `ActionPlayPlayerUtility` | Поломка/Починка | `template_id, target_player_id` |
+| `ActionDiscard` | Сброс карт | `templates, repair_equipment` |
+
+### Статические ID карт
+
+Полная таблица ID карт: [CARD_IDS.md](./CARD_IDS.md)
+
+**Колода (ID 1-96):**
+| Шаблон | Диапазон |
+|--------|-----------|
+| tunnel_cross | 1-10 |
+| tunnel_t | 11-20 |
+| tunnel_straight | 21-28 |
+| tunnel_corner | 29-38 |
+| tunnel_deadend | 39-42 |
+| tunnel_bridge | 43-46 |
+| tunnel_double_corner | 47-50 |
+| tunnel_split_t_up | 51-54 |
+| tunnel_split_t_l | 55-58 |
+| door_blue | 59-61 |
+| door_green | 62-64 |
+| ladder | 65-68 |
+| act_boom | 69-71 |
+| act_key | 72-74 |
+| act_map | 75-78 |
+| brk_LAMP | 79-81 |
+| brk_CART | 82-84 |
+| brk_PICKAXE | 85-87 |
+| rep_LAMP | 88-90 |
+| rep_CART | 91-93 |
+| rep_PICKAXE | 94-96 |
+
+**Золото (ID 8001-8012):**
+| Шаблон | ID |
+|--------|-----|
+| gold_1_ud, gold_1_lr | 8001-8004 |
+| gold_2_corner, gold_2_t | 8005-8008 |
+| gold_3_cross, gold_3_t | 8009-8012 |
+
+**Стартовые карты:**
+| Шаблон | ID |
+|--------|-----|
+| start_blue | 9001 |
+| start_green | 9002 |
 
 ### Примеры ботов
 
@@ -401,3 +457,37 @@ python3 main.py --benchmark 100 --bot1 heuristic --bot2 random
 - Игра стабильно работает без ошибок
 - HeuristicAgent выигрывает ~87% матчей против RandomAgent
 - Среднее количество ходов до победы: 40-80
+
+---
+
+## Тесты валидации ботов
+
+Тесты находятся в `tests/test_bots.py` и проверяют корректность кода ботов перед запуском.
+
+### Запуск тестов
+
+```bash
+# Все тесты
+pytest tests/test_bots.py -v
+
+# Конкретный класс тестов
+pytest tests/test_bots.py::TestValidBotLoading -v
+
+# Один тест
+pytest tests/test_bots.py::TestValidBotLoading::test_minimal_valid_bot -v
+```
+
+### Тестируемые сценарии
+
+| Класс тестов | Описание |
+|--------------|----------|
+| `TestValidBotLoading` | Валидные боты должны проходить проверку |
+| `TestSyntaxErrors` | Синтаксические ошибки отклоняются |
+| `TestMissingStructure` | Отсутствующие обязательные элементы |
+| `TestWrongSignature` | Неправильная сигнатура `choose_action` |
+| `TestInitialization` | Проблемы при инициализации |
+| `TestRuntimeErrors` | Ошибки времени выполнения |
+| `TestEdgeCases` | Граничные случаи |
+| `TestSecurityAndSandboxing` | Защита от опасных операций |
+| `TestDangerousImports` | Блокировка опасных модулей (os, subprocess, socket) |
+| `TestValidationBypass` | Защита от обхода валидации |

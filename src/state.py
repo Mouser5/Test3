@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from cards import EquipmentType
 
 _card_id_counter = 0
@@ -47,6 +47,7 @@ class MatchState(BaseModel):
     first_player_in_round: int = 0
     total_scores: Dict[int, int] = Field(default_factory=lambda: {0: 0, 1: 0})
     round_scores: Dict[int, int] = Field(default_factory=lambda: {0: 0, 1: 0})
+    metadata: Any = None
     move_log_dsl: List[str] = Field(default_factory=list)
 
 
