@@ -335,7 +335,7 @@ class HeuristicAgent:
         # Карты, которые бесполезны когда все инструменты работают
         useless_when_healthy = []
         if not player_state.broken_equipments:
-            for t_id in player_state.hand:
+            for t_id in player_state.card_id_to_template.values():
                 tpl = REGISTRY.get(t_id)
                 if hasattr(tpl, "action_type") and tpl.action_type == ActionType.REPAIR:
                     useless_when_healthy.append(t_id)
@@ -356,7 +356,7 @@ class HeuristicAgent:
             # (например, строить когда сломаны инструменты)
             if player_state.broken_equipments:
                 for t_id in templates:
-                    tpl = REGISTRY.get(t_id)
+                    tpl = REGISTRY.get(player_state.card_id_to_template.get(t_id))
                     if isinstance(
                         tpl, (TunnelCardTemplate, DoorCardTemplate, LadderCardTemplate)
                     ):
