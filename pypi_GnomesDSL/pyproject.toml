@@ -1,0 +1,14 @@
+[project]
+name = "gnomes-dsl"
+version = "0.1.0"
+description = "DSL парсер для игры Гномы-вредители: Дуэль"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
