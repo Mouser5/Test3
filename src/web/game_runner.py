@@ -17,7 +17,8 @@ from actions import (
 )
 from registry import REGISTRY
 from random_agent import RandomAgent
-from heuristic_agent import HeuristicAgent, SmartAgent
+from heuristic_agent import HeuristicAgent
+from smart_agent import SmartAgent
 from view import ConsoleView
 
 
@@ -74,7 +75,7 @@ class TournamentResult:
 def _format_action(action: AgentAction, game: Game) -> str:
     tpl_id = getattr(action, "template_id", None)
     _tpl_id = game.get_template_by_card_id(tpl_id)
-    
+
     tpl = REGISTRY.get(_tpl_id) if _tpl_id else None
     tpl_name = tpl.name if tpl else _tpl_id
 
@@ -198,7 +199,7 @@ def run_single_game(
                     game.state.current_player_id = 1 - curr_p
                     continue
 
-                success, msg, rev_gold = game.step(action)
+                success, msg, rev_gold, _ = game.step(action)
                 turn_count += 1
 
                 dsl_lines.append(action_to_dsl(action, curr_p))
@@ -305,7 +306,7 @@ def run_benchmark(
                             game.state.current_player_id = 1 - curr_p
                             continue
 
-                        success, msg, _ = game.step(action)
+                        success, msg, _, _ = game.step(action)
                         if not success:
                             total_errors += 1
                         total_turns += 1
@@ -660,7 +661,7 @@ def run_single_game_internal(
                     game.state.current_player_id = 1 - curr_p
                     continue
 
-                success, msg, rev_gold = game.step(action)
+                success, msg, rev_gold, _ = game.step(action)
                 turn_count += 1
 
                 if turn_count <= 5:

@@ -389,6 +389,9 @@ def show_game_tab(db: Session, user_id: int):
                 opponent_class,
                 agent1_name=bot.name,
                 agent2_name=opponent.capitalize(),
+                db_session=db,
+                game_id=game_id,
+                save_to_db=True,
             )
 
             winner_name = result.winner_name if result.winner is not None else "Ничья"
