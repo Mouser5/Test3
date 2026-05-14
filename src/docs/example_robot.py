@@ -26,7 +26,7 @@ class MyFirstRobot:
         """
         self.player_id = player_id
 
-    def choose_action(self, game) -> Optional["AgentAction"]:
+    def choose_action(self, game):
         """
         Выбирает действие для выполнения.
 

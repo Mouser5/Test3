@@ -1,0 +1,83 @@
+@startuml DSL-User-Guide-Diagram
+!theme plain
+skinparam monochrome true
+skinparam componentStyle uml2
+
+package "Bot Developer View" {
+    component "Game State Input" as Input {
+        note right
+          **System sends to Bot:**
+          
+          ```
+          x;y card_id is_rotated
+          p0 broken_ids
+          p1 broken_ids
+          hand_size
+          card_id1;card_id2;...
+          ```
+        end note
+    }
+    
+    component "Bot Decision" as Decision {
+        note right
+          **Operations:**
+          
+          | Code | Operation | Format |
+          |------|-----------|--------|
+          | 0 | PASS | `0` |
+          | 1 | BUILD | `1\ncard_id\nx;y\nis_rotated` |
+          | 2 | REPAIR | `2\nequipment_id\ncard_id` |
+          | 3 | DISCARD | `3\ncard_id` |
+        end note
+    }
+    
+    component "Action Output" as Output {
+        note right
+          **Bot sends to System:**
+          
+          Example - Build:
+          ```
+          1
+          96
+          -2;0
+          0
+          ```
+        end note
+    }
+}
+
+package "Card Reference" as Cards {
+    component "Card IDs" {
+        note right
+          **Card Ranges:**
+          - 1-87: Regular cards
+          - 8001-8006: Gold on board
+          - 9001-9002: Start points
+          
+          **Equipment IDs:**
+          - 1: LAMP
+          - 2: CART  
+          - 3: PICKAXE
+        end note
+    }
+    
+    component "Card Templates" {
+        note right
+          **Tunnels:** tunnel_cross, tunnel_t, 
+          tunnel_straight, tunnel_corner, 
+          tunnel_deadend, tunnel_bridge,
+          tunnel_double_corner, etc.
+          
+          **Actions:** act_boom, act_key, act_map
+          
+          **Equipment:** brk_LAMP, brk_CART,
+          brk_PICKAXE, rep_LAMP, rep_CART,
+          rep_PICKAXE
+        end note
+    }
+}
+
+Input --> Decision
+Decision --> Output
+
+@enduml

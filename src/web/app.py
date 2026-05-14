@@ -1,4 +1,5 @@
 import sys
+import os
 from pathlib import Path
 
 src_path = Path(__file__).parent.parent
@@ -18,6 +19,15 @@ from web.bot_crud import (
     save_game_result,
     get_user_game_history,
     get_bot_stats,
+    get_latest_bots_from_all_users,
+    get_all_bots_grouped_by_user,
+    get_all_game_history,
+    get_all_users,
+    update_user_role,
+    create_user_by_admin,
+    create_bot_for_user,
+    get_all_bots_with_users,
+    delete_bot_by_admin,
 )
 from web.agent_validator import AgentValidator
 from web.game_runner import (
@@ -25,6 +35,7 @@ from web.game_runner import (
     BUILTIN_AGENTS,
     SingleGameResult,
     BenchmarkResult,
+    run_tournament,
 )
 
 st.set_page_config(
@@ -33,6 +44,11 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+def display_scrollable_code(code: str, height: int = 300):
+    st.code(code, language="python")
+
 
 st.markdown(
     """
@@ -47,6 +63,14 @@ st.markdown(
     color: #d4d4d4;
     font-family: 'Consolas', 'Monaco', monospace;
     font-size: 13px;
+}
+div[data-testid="stCodeBlock"] {
+    max-height: 300px;
+    overflow-y: auto;
+}
+div[data-testid="stCodeBlock"] pre {
+    max-height: 300px;
+    overflow-y: auto;
 }
 .success-box {
     background-color: #d4edda;
@@ -79,6 +103,22 @@ st.markdown(
     max-height: 400px;
     overflow-y: auto;
 }
+.stCodeBlock {
+    max-height: 400px;
+    overflow-y: auto;
+}
+.code-block-wrapper {
+    background-color: #1e1e1e;
+    border-radius: 10px;
+    padding: 15px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+.code-block-wrapper pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -103,6 +143,8 @@ def init_auth_state():
         st.session_state.user_id = None
     if "username" not in st.session_state:
         st.session_state.username = None
+    if "role" not in st.session_state:
+        st.session_state.role = "admin"
     if "access_token" not in st.session_state:
         st.session_state.access_token = None
 
@@ -114,6 +156,9 @@ def login_user(db: Session, username: str, password: str):
     token = create_access_token(data={"sub": str(user.id), "username": user.username})
     st.session_state.user_id = user.id
     st.session_state.username = user.username
+    st.session_state.role = (
+        user.role.value if hasattr(user.role, "value") else str(user.role)
+    )
     st.session_state.access_token = token
     return True, ""
 
@@ -121,6 +166,7 @@ def login_user(db: Session, username: str, password: str):
 def logout_user():
     st.session_state.user_id = None
     st.session_state.username = None
+    st.session_state.role = "admin"
     st.session_state.access_token = None
     if "db_session" in st.session_state:
         st.session_state.db_session.close()
@@ -154,6 +200,7 @@ def show_login(db: Session):
         new_email = st.text_input("Email")
         new_password = st.text_input("Пароль", type="password")
         confirm_password = st.text_input("Подтвердите пароль", type="password")
+        new_role = st.selectbox("Роль", ["admin", "player"])
         submit_reg = st.form_submit_button("Зарегистрироваться", type="primary")
 
         if submit_reg:
@@ -165,7 +212,10 @@ def show_login(db: Session):
                 user, error = register_user(
                     db,
                     UserCreate(
-                        username=new_username, email=new_email, password=new_password
+                        username=new_username,
+                        email=new_email,
+                        password=new_password,
+                        role=new_role,
                     ),
                 )
                 if error:
@@ -180,27 +230,62 @@ def show_login(db: Session):
 
 def show_dashboard(db: Session):
     user_id = st.session_state.user_id
+    user_role = st.session_state.get("role", "admin")
 
-    st.sidebar.markdown(f"### 👤 {st.session_state.username}")
+    st.sidebar.markdown(f"### 👤 {st.session_state.username} ({user_role})")
     if st.sidebar.button("🚪 Выйти", use_container_width=True):
         logout_user()
         st.rerun()
 
     st.sidebar.markdown("---")
 
-    tabs = st.tabs(["🎮 Игра", "🤖 Мои боты", "📊 История", "❓ Правила"])
+    if user_role == "admin":
+        tabs = st.tabs(
+            [
+                "🎮 Игра",
+                "🤖 Мои боты",
+                "🏆 Турнир",
+                "🤖 Все боты",
+                "📊 История",
+                "⚙️ Администрирование",
+                "❓ Правила",
+            ]
+        )
 
-    with tabs[0]:
-        show_game_tab(db, user_id)
+        with tabs[0]:
+            show_game_tab(db, user_id)
 
-    with tabs[1]:
-        show_bots_tab(db, user_id)
+        with tabs[1]:
+            show_bots_tab(db, user_id)
 
-    with tabs[2]:
-        show_history_tab(db, user_id)
+        with tabs[2]:
+            show_tournament_tab(db, user_id)
 
-    with tabs[3]:
-        show_requirements()
+        with tabs[3]:
+            show_all_bots_tab(db, user_id)
+
+        with tabs[4]:
+            show_all_history_tab(db, user_id)
+
+        with tabs[5]:
+            show_admin_panel(db)
+
+        with tabs[6]:
+            show_requirements()
+    else:
+        tabs = st.tabs(["🎮 Игра", "🤖 Мои боты", "📊 История", "❓ Правила"])
+
+        with tabs[0]:
+            show_game_tab(db, user_id)
+
+        with tabs[1]:
+            show_bots_tab(db, user_id)
+
+        with tabs[2]:
+            show_history_tab(db, user_id)
+
+        with tabs[3]:
+            show_requirements()
 
 
 def show_game_tab(db: Session, user_id: int):
@@ -333,6 +418,132 @@ def show_game_tab(db: Session, user_id: int):
         show_single_game_result(result)
 
 
+def show_tournament_tab(db: Session, user_id: int):
+    from web.models import Tournament, TournamentResult as TR
+    from sqlalchemy import desc
+
+    st.markdown("### 🏆 Турнир")
+
+    all_bots = get_latest_bots_from_all_users(db)
+    if not all_bots:
+        st.info("Нет ботов для участия в турнире")
+        return
+
+    with st.expander("➕ Создать турнир", expanded=True):
+        with st.form("tournament_form"):
+            tournament_name = st.text_input(
+                "Название турнира", placeholder="Мой турнир"
+            )
+            selected_bots = st.multiselect(
+                "Выберите ботов (минимум 2)",
+                options=[
+                    (bot.id, f"{bot.name} (user_id={bot.user_id})") for bot in all_bots
+                ],
+                format_func=lambda x: x[1],
+            )
+            submit = st.form_submit_button("Запустить турнир", type="primary")
+
+            if submit:
+                if len(selected_bots) < 2:
+                    st.error("Выберите минимум 2 бота")
+                elif not tournament_name:
+                    st.error("Введите название турнира")
+                else:
+                    import random
+                    import math
+
+                    bots_list = []
+                    for bot_id, bot_name in selected_bots:
+                        bot = get_bot_by_id(db, bot_id)
+                        if not bot:
+                            continue
+
+                        module_name = f"bot_{bot.id}"
+                        try:
+                            exec_globals = {
+                                "__name__": module_name,
+                                "random": random,
+                                "math": math,
+                            }
+                            exec(
+                                compile(bot.code, f"<bot_{bot.id}>", "exec"),
+                                exec_globals,
+                            )
+
+                            agent_class = None
+                            for name in exec_globals:
+                                obj = exec_globals[name]
+                                if isinstance(obj, type) and hasattr(
+                                    obj, "choose_action"
+                                ):
+                                    agent_class = obj
+                                    break
+
+                            if agent_class:
+                                bots_list.append((agent_class, bot_name))
+                        except Exception:
+                            continue
+
+                    if len(bots_list) < 2:
+                        st.error("Не удалось загрузить хотя бы 2 бота")
+                    else:
+                        progress_bar = st.progress(0, text="Подготовка...")
+                        progress_bar.progress(10, text="Запуск турнира...")
+
+                        try:
+                            result = run_tournament(
+                                bots_list,
+                                db,
+                                user_id,
+                                tournament_name,
+                            )
+
+                            progress_bar.progress(100, text="Готово!")
+
+                            st.success(
+                                f"Турнир завершён! Всего игр: {result.total_games}"
+                            )
+
+                        except Exception as e:
+                            progress_bar.progress(100, text="Ошибка!")
+                            st.error(f"Ошибка турнира: {str(e)}")
+
+    st.markdown("---")
+    st.markdown("#### 📂 История турниров")
+
+    tournaments = (
+        db.query(Tournament).order_by(desc(Tournament.created_at)).limit(10).all()
+    )
+
+    if not tournaments:
+        st.info("Пока нет турниров")
+        return
+
+    for tournament in tournaments:
+        with st.expander(
+            f"🏆 {tournament.name} ({tournament.created_at.strftime('%d.%m.%Y %H:%M')})"
+        ):
+            results = db.query(TR).filter(TR.tournament_id == tournament.id).all()
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Всего игр", len(results) * 2 if results else 0)
+            with col2:
+                st.metric("Статус", tournament.status.value)
+            with col3:
+                st.metric("Время", f"{tournament.created_at.strftime('%H:%M')}")
+
+            if results:
+                st.markdown("##### Результаты:")
+                sorted_results = sorted(
+                    results, key=lambda x: (-x.wins, -x.total_score)
+                )
+                for i, tr in enumerate(sorted_results, 1):
+                    st.write(
+                        f"{i}. **{tr.bot_name}**: {tr.wins} побед, {tr.losses} поражений, {tr.draws} ничьих, {tr.total_score} очков"
+                    )
+
+
 def show_bots_tab(db: Session, user_id: int):
     from web.logger import log_bot_upload
 
@@ -341,7 +552,27 @@ def show_bots_tab(db: Session, user_id: int):
     with st.expander("➕ Загрузить нового бота", expanded=False):
         with st.form("upload_bot"):
             bot_name = st.text_input("Название бота", placeholder="MySuperBot")
-            bot_code = st.text_area("Код бота (Python)", height=300)
+
+            code_tabs = st.tabs(["✏️ Ввести код", "📁 Загрузить файл"])
+            bot_code = ""
+
+            with code_tabs[0]:
+                bot_code = st.text_area(
+                    "Код бота (Python)", height=300, key="user_bot_code"
+                )
+
+            with code_tabs[1]:
+                uploaded_file = st.file_uploader(
+                    "Выберите .py файл",
+                    type=["py"],
+                    key="user_file_upload",
+                )
+                if uploaded_file:
+                    bot_code = uploaded_file.getvalue().decode("utf-8")
+                    st.success(
+                        f"Загружено: {uploaded_file.name} ({len(bot_code)} символов)"
+                    )
+
             submit = st.form_submit_button("Загрузить", type="primary")
 
             if submit:
@@ -384,10 +615,8 @@ def show_bots_tab(db: Session, user_id: int):
             with col4:
                 st.metric("Win Rate", f"{stats['win_rate']:.1f}%")
 
-            st.code(
-                bot.code[:500] + "..." if len(bot.code) > 500 else bot.code,
-                language="python",
-            )
+            st.markdown("**Код:**")
+            display_scrollable_code(bot.code)
 
             if st.button("🗑️ Удалить", key=f"delete_{bot.id}"):
                 if delete_bot(db, bot.id, user_id):
@@ -404,8 +633,11 @@ def show_history_tab(db: Session, user_id: int):
         st.info("У вас пока нет сыгранных игр")
         return
 
-    for game in history:
-        with st.expander(f"Игра #{game.id} - {game.opponent_type} | {game.result}"):
+    for idx, game in enumerate(history, start=1):
+        result_icon = (
+            "✅" if game.result == "win" else ("❌" if game.result == "loss" else "🤝")
+        )
+        with st.expander(f"Игра #{idx} — {result_icon} vs {game.opponent_type}"):
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Ваш счёт", game.user_score)
@@ -413,7 +645,216 @@ def show_history_tab(db: Session, user_id: int):
                 st.metric("Счёт противника", game.opponent_score)
             with col3:
                 st.metric("Ходов", game.turns)
+            st.caption(f"Дата: {game.played_at} | ID в БД: {game.id}")
+
+
+def show_all_bots_tab(db: Session, user_id: int):
+    from web.models import User
+
+    st.markdown("### 🤖 Все боты (по пользователям)")
+
+    bots_by_user = get_all_bots_grouped_by_user(db)
+
+    if not bots_by_user:
+        st.info("Нет загруженных ботов")
+        return
+
+    for uid, bots in bots_by_user.items():
+        user = db.query(User).filter(User.id == uid).first()
+        username = user.username if user else f"user_{uid}"
+
+        with st.expander(f"👤 {username} ({len(bots)} ботов)"):
+            for bot in bots:
+                stats = get_bot_stats(db, bot.id)
+
+                with st.expander(f"🤖 {bot.name} (ID: {bot.id})"):
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Всего игр", stats["total"])
+                    with col2:
+                        st.metric("Побед", stats["wins"])
+                    with col3:
+                        st.metric("Поражений", stats["losses"])
+                    with col4:
+                        st.metric("Win Rate", f"{stats['win_rate']:.1f}%")
+
+                    st.markdown("**Код:**")
+                    display_scrollable_code(bot.code)
+                    st.markdown("---")
+
+
+def show_all_history_tab(db: Session, user_id: int):
+    st.markdown("### 📊 Все игры")
+
+    history = get_all_game_history(db)
+
+    if not history:
+        st.info("Нет сыгранных игр")
+        return
+
+    for game in history:
+        result_icon = (
+            "✅" if game.result == "win" else ("❌" if game.result == "loss" else "🤝")
+        )
+        with st.expander(
+            f"Игра #{game.id} — {result_icon} | user_id={game.user_id} | vs {game.opponent_type}"
+        ):
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("user_id", game.user_id)
+            with col2:
+                st.metric("Счёт", f"{game.user_score} : {game.opponent_score}")
+            with col3:
+                st.metric("Результат", game.result)
+            with col4:
+                st.metric("Ходов", game.turns)
             st.caption(f"Дата: {game.played_at}")
+
+
+def show_admin_panel(db: Session):
+    st.markdown("### ⚙️ Панель администратора")
+
+    sub_tabs = st.tabs(["👥 Пользователи", "🤖 Код всех ботов", "📁 Загрузить бота"])
+
+    with sub_tabs[0]:
+        st.markdown("#### 👥 Управление пользователями")
+
+        users = get_all_users(db)
+        if not users:
+            st.info("Нет пользователей")
+        else:
+            for user in users:
+                col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+                with col1:
+                    st.write(f"**{user.username}**")
+                with col2:
+                    st.write(user.email)
+                with col3:
+                    st.write(f"Роль: {user.role}")
+                with col4:
+                    new_role = "player" if user.role == "admin" else "admin"
+                    if st.button(f"→ {new_role}", key=f"role_{user.id}"):
+                        if update_user_role(db, user.id, new_role):
+                            st.success("Роль изменена")
+                            st.rerun()
+                        else:
+                            st.error("Ошибка")
+
+        st.markdown("---")
+        st.markdown("#### ➕ Создать пользователя")
+
+        with st.form("create_user_admin"):
+            new_username = st.text_input("Имя пользователя")
+            new_email = st.text_input("Email")
+            new_password = st.text_input("Пароль", type="password")
+            submit = st.form_submit_button("Создать", type="primary")
+
+            if submit:
+                if not new_username or not new_email or not new_password:
+                    st.error("Заполните все поля")
+                else:
+                    user, error = create_user_by_admin(
+                        db, new_username, new_email, new_password
+                    )
+                    if error:
+                        st.error(error)
+                    else:
+                        st.success(f"Создан пользователь: {user.username}")
+                        st.rerun()
+
+    with sub_tabs[1]:
+        st.markdown("#### 🤖 Боты по пользователям")
+
+        all_bots = get_all_bots_with_users(db)
+        if not all_bots:
+            st.info("Нет загруженных ботов")
+        else:
+            from collections import defaultdict
+
+            bots_by_user = defaultdict(list)
+            for bot in all_bots:
+                bots_by_user[bot["username"]].append(bot)
+
+            for username, bots in bots_by_user.items():
+                with st.expander(f"👤 {username} ({len(bots)} ботов)"):
+                    for bot in bots:
+                        with st.expander(f"🤖 {bot['bot_name']} (ID: {bot['bot_id']})"):
+                            col1, col2 = st.columns([1, 1])
+                            with col1:
+                                st.write(
+                                    f"**Создан:** {bot['created_at'].strftime('%d.%m.%Y %H:%M')}"
+                                )
+                            with col2:
+                                if st.button(
+                                    "🗑️ Удалить бота",
+                                    key=f"admin_delete_bot_{bot['bot_id']}",
+                                ):
+                                    if delete_bot_by_admin(db, bot["bot_id"]):
+                                        st.success("Бот удалён")
+                                        st.rerun()
+                                    else:
+                                        st.error("Ошибка при удалении")
+                            st.markdown("**Код:**")
+                            display_scrollable_code(bot["code"])
+
+    with sub_tabs[2]:
+        st.markdown("#### 📁 Загрузить бота для пользователя")
+
+        users = get_all_users(db)
+        if not users:
+            st.info("Нет пользователей")
+        else:
+            user_options = {u.id: u.username for u in users}
+            selected_user_id = st.selectbox(
+                "Выберите пользователя",
+                options=list(user_options.keys()),
+                format_func=lambda x: user_options[x],
+            )
+
+            with st.form("upload_bot_admin"):
+                bot_name = st.text_input("Название бота", placeholder="MySuperBot")
+
+                code_input_tabs = st.tabs(["✏️ Ввести код", "📁 Загрузить файл"])
+
+                bot_code = ""
+
+                with code_input_tabs[0]:
+                    bot_code = st.text_area(
+                        "Код бота (Python)", height=300, key="admin_bot_code"
+                    )
+
+                with code_input_tabs[1]:
+                    uploaded_file = st.file_uploader(
+                        "Выберите .py файл",
+                        type=["py"],
+                        key="admin_file_upload",
+                    )
+                    if uploaded_file:
+                        bot_code = uploaded_file.getvalue().decode("utf-8")
+                        st.success(
+                            f"Загружено: {uploaded_file.name} ({len(bot_code)} символов)"
+                        )
+
+                submit = st.form_submit_button("Загрузить", type="primary")
+
+                if submit:
+                    if not bot_name or not bot_code:
+                        st.error("Заполните все поля")
+                    else:
+                        validation = AgentValidator.validate_agent_class_from_code(
+                            bot_code
+                        )
+                        if validation.is_valid:
+                            bot = create_bot_for_user(
+                                db, selected_user_id, bot_name, bot_code
+                            )
+                            st.success(
+                                f"Бот '{bot.name}' создан для {user_options[selected_user_id]}"
+                            )
+                            st.rerun()
+                        else:
+                            for error in validation.errors:
+                                st.error(error)
 
 
 def show_requirements():
@@ -421,48 +862,14 @@ def show_requirements():
 
     st.markdown("### 📊 UML-диаграмма интерфейса агента")
 
-    uml_code = """
-@startuml
-skinparam classAttributeIconSize 0
-skinparam monochrome true
-
-interface "<<interface>>\\nAgentInterface" as IAgent {
-    + player_id: int
-    + choose_action(game: Game): Optional[AgentAction]
-}
-
-class RandomAgent {
-    - player_id: int
-    + choose_action(game: Game): Optional[AgentAction]
-}
-
-class HeuristicAgent {
-    - player_id: int
-    - logger: Logger
-    + choose_action(game: Game): Optional[AgentAction]
-    - _select_best_action(game, actions): AgentAction
-    - _choose_best_build_action(game, actions): ActionBuild
-}
-
-class "Ваш робот" as UserAgent <<custom>> {
-    - player_id: int
-    + choose_action(game: Game): Optional[AgentAction]
-}
-
-IAgent <|.. RandomAgent
-IAgent <|.. HeuristicAgent
-IAgent <|.. UserAgent
-
-note right of UserAgent
-  Вы должны реализовать
-  класс с таким интерфейсом
-end note
-
-@enduml
-"""
-
-    st.code(uml_code, language="plantuml", line_numbers=False)
-    st.info("Визуализировать: https://www.plantuml.com/plantuml/uml/")
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    svg_path = os.path.join(base_dir, "docs", "rules.svg")
+    if os.path.exists(svg_path):
+        st.image(
+            svg_path, caption="Диаграмма интерфейса агента", use_container_width=True
+        )
+    else:
+        st.warning("Диаграмма не найдена")
 
 
 def show_single_game_result(result: SingleGameResult):

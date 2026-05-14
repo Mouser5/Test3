@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 import importlib.util
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -7,11 +7,12 @@ from typing import Dict, Any
 import uvicorn
 import requests
 
+GAME_API_URL = os.getenv("GAME_API_URL", "http://game-api:8000")
+
 app = FastAPI()
 
 AGENT_CLASS = None
 AGENT_INSTANCE = None
-GAME_API_URL = os.getenv("GAME_API_URL", "http://game-api:8000")
 
 
 def load_agent_from_code(code: str):

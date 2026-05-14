@@ -1,10 +1,7 @@
-import os
 import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://gnomes:gnomes_secret@localhost:5432/gnomes_game"
-)
+from config import DATABASE_URL
 
 
 def create_tables():
@@ -12,17 +9,21 @@ def create_tables():
     conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS users (
             id SERIAL PRIMARY KEY,
             username VARCHAR(50) UNIQUE NOT NULL,
             email VARCHAR(100) UNIQUE NOT NULL,
             password_hash VARCHAR(255) NOT NULL,
+            role VARCHAR(20) DEFAULT 'admin' NOT NULL,
             created_at TIMESTAMP DEFAULT NOW()
         );
-    """)
+    """
+    )
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS bots (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -30,9 +31,11 @@ def create_tables():
             code TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT NOW()
         );
-    """)
+    """
+    )
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS game_results (
             id SERIAL PRIMARY KEY,
             user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -45,7 +48,56 @@ def create_tables():
             turns INTEGER NOT NULL,
             played_at TIMESTAMP DEFAULT NOW()
         );
-    """)
+    """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tournaments (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            name VARCHAR(100) NOT NULL,
+            status VARCHAR(20) DEFAULT 'pending' NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            completed_at TIMESTAMP
+        );
+    """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tournament_games (
+            id SERIAL PRIMARY KEY,
+            tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
+            bot1_id INTEGER REFERENCES bots(id) ON DELETE SET NULL,
+            bot2_id INTEGER REFERENCES bots(id) ON DELETE SET NULL,
+            bot1_name VARCHAR(100) NOT NULL,
+            bot2_name VARCHAR(100) NOT NULL,
+            game_order INTEGER NOT NULL,
+            bot1_score INTEGER DEFAULT 0,
+            bot2_score INTEGER DEFAULT 0,
+            winner INTEGER,
+            turns INTEGER DEFAULT 0,
+            played_at TIMESTAMP DEFAULT NOW()
+        );
+    """
+    )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tournament_results (
+            id SERIAL PRIMARY KEY,
+            tournament_id INTEGER REFERENCES tournaments(id) ON DELETE CASCADE,
+            bot_id INTEGER REFERENCES bots(id) ON DELETE SET NULL,
+            bot_name VARCHAR(100) NOT NULL,
+            wins INTEGER DEFAULT 0,
+            losses INTEGER DEFAULT 0,
+            draws INTEGER DEFAULT 0,
+            total_score INTEGER DEFAULT 0,
+            games_played INTEGER DEFAULT 0
+        );
+    """
+    )
 
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_bots_user_id ON bots(user_id);")
     cursor.execute(
@@ -57,5 +109,57 @@ def create_tables():
     print("Database tables created successfully!")
 
 
+def migrate_role_column():
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) DEFAULT 'admin' NOT NULL"
+        )
+    except Exception as e:
+        print(f"Migration role column: {e}")
+    finally:
+        conn.close()
+
+
+def migrate_winrate_column():
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    cursor = conn.cursor()
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS winrate INTEGER")
+    except Exception as e:
+        print(f"Migration winrate column: {e}")
+    finally:
+        conn.close()
+
+
+def ensure_default_admin():
+    from config import ADMIN_USERNAME, ADMIN_EMAIL, ADMIN_PASSWORD
+    from web.auth import create_default_admin_if_not_exists
+
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM users LIMIT 1")
+    conn.close()
+
+    from web.models import SessionLocal
+
+    db = SessionLocal()
+    try:
+        admin = create_default_admin_if_not_exists(
+            db, ADMIN_USERNAME, ADMIN_EMAIL, ADMIN_PASSWORD
+        )
+        if admin:
+            print(f"Admin account ready: {admin.username}")
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     create_tables()
+    migrate_role_column()
+    migrate_winrate_column()
+    ensure_default_admin()

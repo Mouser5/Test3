@@ -7,6 +7,7 @@ class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
     password: str = Field(..., min_length=6)
+    role: str = "admin"
 
 
 class UserLogin(BaseModel):
@@ -18,6 +19,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     email: str
+    role: str
     created_at: datetime
 
     class Config:
@@ -66,3 +68,20 @@ class GameResultResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UserUpdateRole(BaseModel):
+    user_id: int
+    new_role: str
+
+
+class AdminCreateUser(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50)
+    email: str = Field(..., min_length=5, max_length=100)
+    password: str = Field(..., min_length=6)
+
+
+class BotCreateForUser(BaseModel):
+    user_id: int
+    name: str = Field(..., min_length=1, max_length=100)
+    code: str = Field(..., min_length=10)

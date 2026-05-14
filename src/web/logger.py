@@ -1,9 +1,7 @@
 import sys
-import os
+from config import LOG_DIR
 from loguru import logger
-from pathlib import Path
 
-LOG_DIR = Path(os.getenv("LOG_DIR", "/app/logs"))
 LOG_DIR.mkdir(exist_ok=True)
 
 logger.remove()
@@ -40,6 +38,66 @@ def log_game_start(game_id: str, bot1_name: str, bot2_name: str):
 def log_game_end(game_id: str, winner: str, scores: dict, turns: int):
     logger.info(
         f"🏁 Игра завершена | game_id={game_id} | winner={winner} | scores={scores} | turns={turns}"
+    )
+
+
+def log_tournament_end(
+    tournament_id: int,
+    tournament_name: str,
+    total_games: int,
+    total_turns: int,
+    results: dict,
+    elapsed_time: float,
+):
+    from datetime import datetime
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    sorted_results = sorted(results.items(), key=lambda x: x[1]["wins"], reverse=True)
+
+    logger.info("=" * 60)
+    logger.info(f"🏆 ТУРНИР ЗАВЕРШЕН | {timestamp}")
+    logger.info(f"   ID: {tournament_id}")
+    logger.info(f"   Название: {tournament_name}")
+    logger.info(f"   Всего игр: {total_games}")
+    logger.info(f"   Всего ходов: {total_turns}")
+    logger.info(f"   Время: {elapsed_time:.2f} сек")
+    logger.info("-" * 60)
+    logger.info("📊 РЕЗУЛЬТАТЫ:")
+
+    for bot_name, stats in sorted_results:
+        win_rate = (stats["wins"] / stats["games"] * 100) if stats["games"] > 0 else 0
+        logger.info(
+            f"   {bot_name}: "
+            f"{stats['wins']}W/{stats['losses']}L/{stats['draws']}D | "
+            f"WR: {win_rate:.1f}% | "
+            f"Очки: {stats['total_score']} | "
+            f"Игр: {stats['games']}"
+        )
+
+    logger.info("=" * 60)
+
+
+def log_tournament_game(
+    tournament_id: int,
+    game_num: int,
+    bot1_name: str,
+    bot2_name: str,
+    bot1_score: int,
+    bot2_score: int,
+    winner: int,
+    turns: int,
+):
+    from datetime import datetime
+
+    winner_name = bot1_name if winner == 0 else (bot2_name if winner == 1 else "Ничья")
+    timestamp = datetime.now().strftime("%H:%M:%S")
+
+    logger.info(
+        f"🎮 [t{tournament_id}] Игра {game_num}: "
+        f"{bot1_name}({bot1_score}) vs {bot2_name}({bot2_score}) | "
+        f"Победитель: {winner_name} | "
+        f"Ходов: {turns} | {timestamp}"
     )
 
 

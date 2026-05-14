@@ -1,0 +1,79 @@
+@startuml DSL-Activity-Diagram
+!theme plain
+skinparam monochrome true
+skinparam activityStartColor none
+skinparam activityEndColor none
+skinparam activityBarColor #333
+
+start
+:Receive game state from system;
+:Parse DSL state string;
+:Extract board, hand, broken equipment;
+
+repeat
+    :Analyze current game state;
+    :Choose operation;
+    
+    branch "Operation type"
+        case (PASS)
+            :Check if hand is empty;
+            if (Hand empty?) then (yes)
+                :Create PASS action (code 0);
+            else (no)
+                :ERROR: Cannot pass with cards in hand;
+                :Choose different operation;
+            endif
+        case (BUILD)
+            :Select card from hand;
+            :Select board position;
+            :Determine rotation;
+            :Create BUILD action;
+            :Format as DSL:
+            | 1
+            | {card_id}
+            | {x};{y}
+            | {is_rotated};
+        case (REPAIR)
+            :Check broken equipment;
+            if (Has broken equipment?) then (yes)
+                :Select equipment to repair;
+                :Select repair card(s);
+                if (Use emergency repair?) then (yes, 2 cards)
+                    :Create emergency REPAIR action;
+                    :Format as DSL:
+                    | 2
+                    | {equipment_id}
+                    | {card_id1};{card_id2};
+                else (no, 1 card)
+                    :Create normal REPAIR action;
+                    :Format as DSL:
+                    | 2
+                    | {equipment_id}
+                    | {card_id};
+                endif
+            else (no)
+                :ERROR: No broken equipment;
+                :Choose different operation;
+            endif
+        case (DISCARD)
+            :Select 1-2 cards from hand;
+            if (Cards selected <= 2?) then (yes)
+                :Create DISCARD action;
+                :Format as DSL:
+                | 3
+                | {card_ids};
+            else (no)
+                :ERROR: Max 2 cards allowed;
+                :Choose different cards;
+            endif
+    end branch
+    :Send action to system;
+    :Receive validation result;
+    
+    repeat while (Action invalid?) is (yes, try again)
+    -> no, action valid;
+    
+    :Receive new game state;
+stop
+
+@enduml

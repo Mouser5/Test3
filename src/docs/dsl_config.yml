@@ -1,0 +1,278 @@
+operations:
+  - code: 0
+    name: PASS
+    description: Pass turn (only allowed when hand is empty)
+    format: "0"
+    example: "0"
+    validation:
+      - "Hand must be empty"
+
+  - code: 1
+    name: BUILD
+    description: Build a card on the board
+    format: "1\n{card_id}\n{x};{y}\n{is_rotated}"
+    parameters:
+      - name: card_id
+        type: integer
+        description: ID of the card from player's hand
+      - name: x
+        type: integer
+        description: X coordinate on the board
+      - name: y
+        type: integer
+        description: Y coordinate on the board
+      - name: is_rotated
+        type: integer
+        description: "0 = normal, 1 = rotated 180 degrees"
+    example: |
+      1
+      96
+      -2;0
+      0
+    validation:
+      - "Card must be in player's hand"
+      - "Position must be available on board"
+
+  - code: 2
+    name: REPAIR
+    description: Repair a broken tool
+    variants:
+      - name: Normal Repair
+        description: Use 1 card to repair a tool
+        format: "2\n{equipment_id}\n{card_id}"
+        parameters:
+          - name: equipment_id
+            type: integer
+            description: ID of equipment to repair (1=LAMP, 2=CART, 3=PICKAXE)
+          - name: card_id
+            type: integer
+            description: ID of repair card from player's hand
+        example: |
+          2
+          1
+          95
+        validation:
+          - "Equipment must be broken"
+          - "Repair card must be in player's hand"
+
+      - name: Emergency Repair
+        description: Use 2 cards to repair a tool
+        format: "2\n{equipment_id}\n{card_id1};{card_id2}"
+        parameters:
+          - name: equipment_id
+            type: integer
+            description: ID of equipment to repair (1=LAMP, 2=CART, 3=PICKAXE)
+          - name: card_id1
+            type: integer
+            description: First repair card ID
+          - name: card_id2
+            type: integer
+            description: Second repair card ID
+        example: |
+          2
+          2
+          95;94
+        validation:
+          - "Equipment must be broken"
+          - "Both cards must be in player's hand"
+
+  - code: 3
+    name: DISCARD
+    description: Discard cards from hand (1-2 cards)
+    format: "3\n{card_ids}"
+    parameters:
+      - name: card_ids
+        type: string
+        description: "Single card ID or multiple IDs separated by ;"
+    examples:
+      - "3\n96"
+      - "3\n96;95"
+    validation:
+      - "Maximum 2 cards can be discarded"
+      - "All cards must be in player's hand"
+
+equipment_ids:
+  1: LAMP
+  2: CART
+  3: PICKAXE
+  descriptions:
+    LAMP: Lantern/light source
+    CART: Mine cart
+    PICKAXE: Pickaxe tool
+
+card_ranges:
+  normal_cards:
+    start: 1
+    end: 87
+    count: 87
+    description: Regular deck cards
+  gold_on_board:
+    start: 8001
+    end: 8006
+    count: 6
+    description: Gold tiles placed on board
+  start_points:
+    start: 9001
+    end: 9002
+    count: 2
+    description: Starting points (blue/green)
+
+card_types:
+  tunnels:
+    - template: tunnel_cross
+      count: 10
+    - template: tunnel_t
+      count: 10
+    - template: tunnel_straight
+      count: 8
+    - template: tunnel_corner
+      count: 10
+    - template: tunnel_deadend
+      count: 4
+    - template: tunnel_bridge
+      count: 4
+    - template: tunnel_double_corner
+      count: 4
+    - template: tunnel_split_t_up
+      count: 4
+    - template: tunnel_split_t_l
+      count: 4
+  doors:
+    - template: door_blue
+      count: 3
+    - template: door_green
+      count: 3
+  utilities:
+    - template: ladder
+      count: 4
+    - template: act_boom
+      count: 3
+    - template: act_key
+      count: 3
+    - template: act_map
+      count: 4
+  breakage:
+    - template: brk_LAMP
+      count: 3
+      description: Break LAMP
+    - template: brk_CART
+      count: 3
+      description: Break CART
+    - template: brk_PICKAXE
+      count: 3
+      description: Break PICKAXE
+  repair:
+    - template: rep_LAMP
+      count: 3
+      description: Repair LAMP
+    - template: rep_CART
+      count: 3
+      description: Repair CART
+    - template: rep_PICKAXE
+      count: 3
+      description: Repair PICKAXE
+  gold:
+    - template: gold_1_ud
+      count: 1
+      value: 1
+    - template: gold_1_lr
+      count: 1
+      value: 1
+    - template: gold_2_corner
+      count: 2
+      value: 2
+    - template: gold_2_t
+      count: 2
+      value: 2
+    - template: gold_3_cross
+      count: 3
+      value: 3
+    - template: gold_3_t
+      count: 3
+      value: 3
+
+state_format:
+  description: Format of game state sent from system to bot
+  board_entries:
+    format: "{x};{y} {card_id} {is_rotated}"
+    example: "-2;-5 8001 0"
+    fields:
+      - name: x
+        type: integer
+        description: X coordinate
+      - name: y
+        type: integer
+        description: Y coordinate
+      - name: card_id
+        type: integer
+        description: Unique card ID on board
+      - name: is_rotated
+        type: integer
+        description: "0 = not rotated, 1 = rotated 180 degrees"
+  broken_equipments:
+    format: "p{player_id} {broken_ids}"
+    example: "p0 1;2"
+    fields:
+      - name: player_id
+        type: integer
+        description: Player ID (0 or 1)
+      - name: broken_ids
+        type: string
+        description: "Semicolon-separated equipment IDs, or 0 if none"
+  hand:
+    format: |
+      {hand_size}
+      {card_id1};{card_id2};...
+    example: |
+      4
+      96;95;94;93
+    fields:
+      - name: hand_size
+        type: integer
+        description: Number of cards in hand
+      - name: card_ids
+        type: string
+        description: Semicolon-separated card IDs
+
+game_flow:
+  description: Complete game communication flow
+  steps:
+    - step: 1
+      actor: System
+      action: Send game state to bot
+      format: "State format (see state_format)"
+    - step: 2
+      actor: Bot
+      action: Parse game state
+      description: "Extract board, hand, and broken equipment info"
+    - step: 3
+      actor: Bot
+      action: Decide action
+      description: "Choose operation based on game state"
+    - step: 4
+      actor: Bot
+      action: Send action to system
+      format: "Operation code + parameters (see operations)"
+    - step: 5
+      actor: System
+      action: Validate action
+      description: "Check if action is legal"
+    - step: 6
+      actor: System
+      action: Execute action or return error
+      description: "If valid, execute and send new state; if invalid, return error"
+
+validation_rules:
+  pass:
+    - "Hand must be empty"
+  build:
+    - "Card must be in player's hand"
+    - "Position must be available on board"
+    - "Coordinates must be valid"
+  repair:
+    - "Equipment must be broken (have damage)"
+    - "All cards must be in player's hand"
+    - "Emergency repair requires exactly 2 cards"
+  discard:
+    - "Maximum 2 cards can be discarded"
+    - "All cards must be in player's hand"

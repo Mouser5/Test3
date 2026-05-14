@@ -3,13 +3,12 @@ import secrets
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from typing import Optional
-import os
+from config import SECRET_KEY
 from sqlalchemy.orm import Session
 
-from web.models import User
+from web.models import User, UserRole
 from web.schemas import UserCreate, UserLogin
 
-SECRET_KEY = os.getenv("SECRET_KEY", "gnomes-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
@@ -57,13 +56,17 @@ def register_user(db: Session, user_data: UserCreate) -> tuple[Optional[User], s
     if existing:
         if existing.username == user_data.username:
             return None, "Имя пользователя уже занято"
-        return None, "Email уже зарегистрирован"
+        return None, "Неверная регистрация"
 
     hashed_password = get_password_hash(user_data.password)
+
+    role = UserRole.admin if user_data.role == "admin" else UserRole.player
+
     db_user = User(
         username=user_data.username,
         email=user_data.email,
         password_hash=hashed_password,
+        role=role,
     )
 
     db.add(db_user)
@@ -82,8 +85,29 @@ def authenticate_user(db: Session, login_data: UserLogin) -> tuple[Optional[User
     if not verify_password(login_data.password, user.password_hash):
         return None, "Неверный пароль"
 
+    user.role = user.role.value if hasattr(user.role, "value") else str(user.role)
     return user, ""
 
 
 def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
     return db.query(User).filter(User.id == user_id).first()
+
+
+def create_default_admin_if_not_exists(
+    db: Session, username: str, email: str, password: str
+) -> Optional[User]:
+    existing = db.query(User).filter(User.role == UserRole.admin).first()
+    if existing:
+        return existing
+
+    hashed_password = get_password_hash(password)
+    admin = User(
+        username=username,
+        email=email,
+        password_hash=hashed_password,
+        role=UserRole.admin,
+    )
+    db.add(admin)
+    db.commit()
+    db.refresh(admin)
+    return admin
