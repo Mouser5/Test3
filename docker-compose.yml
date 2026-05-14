@@ -60,6 +60,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/src
@@ -69,6 +70,7 @@ services:
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme123}
+      - DOCKER_NETWORK=vkrtemp_default
     depends_on:
       postgres:
         condition: service_healthy

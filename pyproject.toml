@@ -21,4 +21,5 @@ dependencies = [
     "streamlit>=1.28.0",
     "uvicorn>=0.25.0",
     "loguru>=0.7.0",
+    "redis>=7.4.0",
 ]

@@ -31,7 +31,8 @@ from web.bot_crud import (
 )
 from web.agent_validator import AgentValidator
 from web.game_runner import (
-    run_single_game,
+    save_game_log_to_db,
+    GameLog,
     BUILTIN_AGENTS,
     SingleGameResult,
     BenchmarkResult,
@@ -233,7 +234,7 @@ def show_dashboard(db: Session):
     user_role = st.session_state.get("role", "admin")
 
     st.sidebar.markdown(f"### 👤 {st.session_state.username} ({user_role})")
-    if st.sidebar.button("🚪 Выйти", use_container_width=True):
+    if st.sidebar.button("🚪 Выйти", width="stretch"):
         logout_user()
         st.rerun()
 
@@ -328,9 +329,13 @@ def show_game_tab(db: Session, user_id: int):
         st.info("У вас нет ботов. Создайте бота на вкладке 'Мои боты'")
         return
 
-    num_games = 1
+    st.info(
+        "⚠️ Бот запускается в изолированном Docker-контейнере. "
+        "Убедитесь, что образ gnomes-bot:latest собран: "
+        "`docker build -t gnomes-bot -f src/bot-container/Dockerfile .`"
+    )
 
-    if st.button("🚀 Запустить игру", type="primary", use_container_width=True):
+    if st.button("🚀 Запустить игру", type="primary", width="stretch"):
         if selected_bot == -1:
             st.warning("Выберите бота для игры")
             return
@@ -354,14 +359,11 @@ def show_game_tab(db: Session, user_id: int):
             }
             exec(compile(bot.code, f"<bot_{bot.id}>", "exec"), exec_globals)
 
-            agent_class = None
-            for name in exec_globals:
-                obj = exec_globals[name]
-                if isinstance(obj, type) and hasattr(obj, "choose_action"):
-                    agent_class = obj
-                    break
-
-            if agent_class is None:
+            has_agent = any(
+                isinstance(obj, type) and hasattr(obj, "choose_action")
+                for obj in exec_globals.values()
+            )
+            if not has_agent:
                 log_bot_loaded(bot.id, bot.name, False)
                 st.error("Не найден класс агента с методом choose_action")
                 return
@@ -384,15 +386,40 @@ def show_game_tab(db: Session, user_id: int):
 
         try:
             opponent_class = BUILTIN_AGENTS[opponent]
-            result = run_single_game(
-                agent_class,
-                opponent_class,
-                agent1_name=bot.name,
-                agent2_name=opponent.capitalize(),
-                db_session=db,
-                game_id=game_id,
-                save_to_db=True,
+
+            from web.redis_game_bridge import RedisGameBridge
+
+            bridge = RedisGameBridge()
+            result_data_raw = bridge.run_with_container(
+                container_player_id=0,
+                bot_code=bot.code,
+                opponent_class=opponent_class,
+                opponent_name=opponent.capitalize(),
+                bot_name=bot.name,
             )
+
+            class ContainerGameResult:
+                def __init__(self, data):
+                    self.winner = data.get("winner")
+                    self.winner_name = (
+                        bot.name
+                        if data.get("winner") == 0
+                        else (
+                            opponent.capitalize()
+                            if data.get("winner") == 1
+                            else "Ничья"
+                        )
+                    )
+                    self.total_scores = data.get("scores", {0: 0, 1: 0})
+                    self.turns = data.get("turns", 0)
+                    self.errors = data.get("errors", [])
+                    self.logs = [GameLog(**log) for log in data.get("logs", [])]
+
+            result = ContainerGameResult(result_data_raw)
+
+            if result_data_raw.get("error"):
+                st.error(f"Ошибка контейнера: {result_data_raw['error']}")
+                return
 
             winner_name = result.winner_name if result.winner is not None else "Ничья"
             log_game_end(game_id, winner_name, result.total_scores, result.turns)
@@ -417,6 +444,19 @@ def show_game_tab(db: Session, user_id: int):
             turns=result.turns,
         )
         save_game_result(db, user_id, result_data)
+
+        dsl_log = result_data_raw.get("dsl_log", "")
+        save_game_log_to_db(
+            db_session=db,
+            game_id=game_id,
+            dsl_log=dsl_log,
+            scores_p0=result.total_scores.get(0, 0),
+            scores_p1=result.total_scores.get(1, 0),
+            winner=result.winner,
+            turns=result.turns,
+            bot1_code=bot.code,
+            bot2_code=None,
+        )
 
         show_single_game_result(result)
 
@@ -483,7 +523,7 @@ def show_tournament_tab(db: Session, user_id: int):
                                     break
 
                             if agent_class:
-                                bots_list.append((agent_class, bot_name))
+                                bots_list.append((bot.code, agent_class, bot_name))
                         except Exception:
                             continue
 
@@ -868,9 +908,7 @@ def show_requirements():
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     svg_path = os.path.join(base_dir, "docs", "rules.svg")
     if os.path.exists(svg_path):
-        st.image(
-            svg_path, caption="Диаграмма интерфейса агента", use_container_width=True
-        )
+        st.image(svg_path, caption="Диаграмма интерфейса агента", width="stretch")
     else:
         st.warning("Диаграмма не найдена")
 

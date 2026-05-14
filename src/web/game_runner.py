@@ -404,7 +404,7 @@ def create_game_for_tournament(
 
 
 def run_tournament(
-    bots: List[Tuple[type, str]],
+    bots: List[Tuple[str, type, str]],
     db_session,
     user_id: int,
     tournament_name: str,
@@ -430,7 +430,7 @@ def run_tournament(
     tournament_id = tournament.id
 
     results: Dict[str, Dict[str, int]] = {}
-    for _, bot_name in bots:
+    for _, _, bot_name in bots:
         results[bot_name] = {
             "wins": 0,
             "losses": 0,
@@ -443,8 +443,13 @@ def run_tournament(
     total_turns = 0
 
     print(f"\n[TOURNAMENT] Starting tournament with {len(bots)} bots")
-    for i, (bot1_class, bot1_name) in enumerate(bots):
-        for j, (bot2_class, bot2_name) in enumerate(bots):
+
+    from web.redis_game_bridge import RedisGameBridge
+
+    bridge = RedisGameBridge()
+
+    for i, (bot1_code, bot1_class, bot1_name) in enumerate(bots):
+        for j, (bot2_code, bot2_class, bot2_name) in enumerate(bots):
             if i == j:
                 continue
 
@@ -469,12 +474,21 @@ def run_tournament(
                 hand1_templates,
                 hand2_templates,
             )
-            result1 = run_single_game_internal(
-                game1,
-                {0: bot1_class(0), 1: bot2_class(1)},
-                bot1_name,
-                bot2_name,
+            result1 = bridge.run_with_container(
+                container_player_id=0,
+                bot_code=bot1_code,
+                opponent_agent=bot2_class(1),
+                opponent_name=bot2_name,
+                bot_name=bot1_name,
+                game=game1,
             )
+
+            if result1.get("error"):
+                print(f"[TOURNAMENT] Game 1 container error: {result1['error']}")
+                result1["winner"] = None
+                result1["scores"] = {0: 0, 1: 0}
+                result1["turns"] = 0
+
             print(
                 f"[TOURNAMENT] Game 1 result: winner={result1['winner']}, scores={result1['scores']}, turns={result1['turns']}"
             )
@@ -531,12 +545,21 @@ def run_tournament(
                 hand2_templates,
                 hand1_templates,
             )
-            result2 = run_single_game_internal(
-                game2,
-                {0: bot1_class(0), 1: bot2_class(1)},
-                bot1_name,
-                bot2_name,
+            result2 = bridge.run_with_container(
+                container_player_id=0,
+                bot_code=bot1_code,
+                opponent_agent=bot2_class(1),
+                opponent_name=bot2_name,
+                bot_name=bot1_name,
+                game=game2,
             )
+
+            if result2.get("error"):
+                print(f"[TOURNAMENT] Game 2 container error: {result2['error']}")
+                result2["winner"] = None
+                result2["scores"] = {0: 0, 1: 0}
+                result2["turns"] = 0
+
             total_turns += result2["turns"]
 
             tg2 = TournamentGame(

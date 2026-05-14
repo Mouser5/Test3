@@ -141,9 +141,9 @@ def log_action_result(game_id: str, player_id: int, success: bool, message: str)
         )
 
 
-def log_container_start(container_id: str, bot_code: str = None):
+def log_container_start(container_id: str, port: str, bot_code: str = None):
     logger.info(
-        f"🐳 Запуск контейнера бота | container_id={container_id} | код={'получен' if bot_code else 'не получен'}"
+        f"🐳 Контейнер запущен | container_id={container_id} | port={port} | код={'получен' if bot_code else 'не получен'}"
     )
 
 
@@ -157,3 +157,15 @@ def log_container_error(container_id: str, error: str):
     logger.error(
         f"❌ Ошибка контейнера бота | container_id={container_id} | error={error}"
     )
+
+
+def log_redis_connected(redis_url: str):
+    logger.info(f"🔴 Redis подключён | url={redis_url}")
+
+
+def log_redis_error(operation: str, error: str):
+    logger.error(f"🔴 Redis ошибка | operation={operation} | error={error}")
+
+
+def log_redis_operation(operation: str, game_id: str, details: str = ""):
+    logger.debug(f"🔴 Redis | op={operation} | game_id={game_id} {details}")

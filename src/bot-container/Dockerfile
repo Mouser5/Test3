@@ -2,9 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir uvicorn fastapi pydantic requests
+RUN pip install --no-cache-dir uvicorn fastapi pydantic requests redis
 
-COPY bot_server.py /app/bot_server.py
+COPY src /app/src
+COPY src/bot-container/bot_server.py /app/
+COPY src/bot-container/bot_redis.py /app/
 
 EXPOSE 8001
 
