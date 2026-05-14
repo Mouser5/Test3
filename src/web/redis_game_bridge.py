@@ -296,6 +296,9 @@ class RedisGameBridge:
             logs[logs_len:] = []
             game.state.current_player_id = old_player
 
+            if attempt == max_retries - 1:
+                break
+
             logger.warning(
                 f"Container turn {turn} attempt {attempt + 1}/{max_retries}, restarting..."
             )
@@ -419,6 +422,7 @@ class RedisGameBridge:
             actions_json.append(action_dict)
 
         player_state = game.state.players[player_id]
+        obs = game.get_observation(player_id)
 
         return {
             "game_id": "",
@@ -430,6 +434,18 @@ class RedisGameBridge:
             "hand": player_state.hand,
             "broken_equipments": [e.value for e in player_state.broken_equipments],
             "known_secrets": list(player_state.known_secrets),
+            "board": {
+                k: {
+                    "template_id": v.template_id,
+                    "is_revealed": v.is_revealed,
+                    "owner_id": v.owner_id,
+                }
+                for k, v in obs.board.items()
+            },
+            "players_broken": {
+                p_id: [e.value for e in p_state.broken_equipments]
+                for p_id, p_state in obs.players.items()
+            },
             "legal_actions": actions_json,
             "is_game_over": game.is_game_over(),
         }

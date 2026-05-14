@@ -213,10 +213,23 @@ package Engine {
     BoardEngine --> TemplateRegistry
 }
 
+package Proxy {
+    class GameProxy {
+        + player_id: int
+        + get_legal_actions(): List[AgentAction]
+        + get_hand(): List[str]
+        + get_board(): Dict
+        + get_broken_equipments(player_id: int): List[str]
+        + get_scores(): Dict[int, int]
+        + get_current_player(): int
+        + is_game_over(): bool
+    }
+}
+
 package Agents {
     interface AgentInterface {
         + player_id: int
-        + choose_action(game: Game): AgentAction
+        + choose_action(game): AgentAction
     }
     
     class RandomAgent {
@@ -241,9 +254,14 @@ package Agents {
         - _evaluate_position(game: Game): float
     }
     
+    class UserAgent {
+        + choose_action(game: GameProxy): AgentAction
+    }
+    
     AgentInterface <|.. RandomAgent
     AgentInterface <|.. HeuristicAgent
     AgentInterface <|.. SmartAgent
+    AgentInterface <|.. UserAgent
     SmartAgent --|> HeuristicAgent
 }
 

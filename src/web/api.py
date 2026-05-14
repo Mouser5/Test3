@@ -141,6 +141,7 @@ def game_to_json(game: Game, player_id: int) -> Dict[str, Any]:
         actions_json.append(action_dict)
 
     player_state = game.state.players[player_id]
+    obs = game.get_observation(player_id)
 
     return {
         "game_id": "",
@@ -152,6 +153,18 @@ def game_to_json(game: Game, player_id: int) -> Dict[str, Any]:
         "hand": player_state.hand,
         "broken_equipments": [e.value for e in player_state.broken_equipments],
         "known_secrets": list(player_state.known_secrets),
+        "board": {
+            k: {
+                "template_id": v.template_id,
+                "is_revealed": v.is_revealed,
+                "owner_id": v.owner_id,
+            }
+            for k, v in obs.board.items()
+        },
+        "players_broken": {
+            p_id: [e.value for e in p_state.broken_equipments]
+            for p_id, p_state in obs.players.items()
+        },
         "legal_actions": actions_json,
         "is_game_over": game.is_game_over(),
     }

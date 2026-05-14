@@ -14,15 +14,15 @@ services:
     image: postgres:17.9
     container_name: gnomes-postgres
     environment:
-      POSTGRES_USER: gnomes
-      POSTGRES_PASSWORD: gnomes_secret
-      POSTGRES_DB: gnomes_game
+      POSTGRES_USER: ${POSTGRES_USER:-gnomes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gnomes_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-gnomes_game}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5111:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U gnomes -d gnomes_game"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gnomes} -d ${POSTGRES_DB:-gnomes_game}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -40,8 +40,11 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/src
-      - DATABASE_URL=postgresql://gnomes:gnomes_secret@postgres:5432/gnomes_game
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-gnomes}:${POSTGRES_PASSWORD:-gnomes_secret}@postgres:5432/${POSTGRES_DB:-gnomes_game}
       - LOG_DIR=/app/logs
+      - POSTGRES_USER=${POSTGRES_USER:-gnomes}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-gnomes_secret}
+      - POSTGRES_DB=${POSTGRES_DB:-gnomes_game}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme123}
@@ -64,7 +67,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app/src
-      - DATABASE_URL=postgresql://gnomes:gnomes_secret@postgres:5432/gnomes_game
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-gnomes}:${POSTGRES_PASSWORD:-gnomes_secret}@postgres:5432/${POSTGRES_DB:-gnomes_game}
+      - POSTGRES_USER=${POSTGRES_USER:-gnomes}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-gnomes_secret}
+      - POSTGRES_DB=${POSTGRES_DB:-gnomes_game}
       - REDIS_URL=redis://redis:6379/0
       - LOG_DIR=/app/logs
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
