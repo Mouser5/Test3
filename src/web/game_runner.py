@@ -17,7 +17,8 @@ from actions import (
 )
 from registry import REGISTRY
 from random_agent import RandomAgent
-from heuristic_agent import HeuristicAgent, SmartAgent
+from heuristic_agent import HeuristicAgent
+from smart_agent import  SmartAgent
 from view import ConsoleView
 
 
