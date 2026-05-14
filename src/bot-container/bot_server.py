@@ -1,5 +1,7 @@
-import sys
 import os
+import sys
+
+sys.path.insert(0, "/app/src")
 import importlib.util
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -7,11 +9,13 @@ from typing import Dict, Any
 import uvicorn
 import requests
 
+GAME_API_URL = os.getenv("GAME_API_URL", "http://game-api:8000")
+
 app = FastAPI()
 
 AGENT_CLASS = None
 AGENT_INSTANCE = None
-GAME_API_URL = os.getenv("GAME_API_URL", "http://game-api:8000")
+REDIS_LISTENER = None
 
 
 def load_agent_from_code(code: str):
@@ -42,6 +46,13 @@ class InitRequest(BaseModel):
     player_id: int = 0
 
 
+class InitRedisRequest(BaseModel):
+    code: str
+    player_id: int = 0
+    redis_url: str = "redis://redis:6379/0"
+    game_id: str = ""
+
+
 class ActionRequest(BaseModel):
     game_id: str
     action: Dict[str, Any]
@@ -53,7 +64,11 @@ class ChooseRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "agent_loaded": AGENT_CLASS is not None}
+    return {
+        "status": "ok",
+        "agent_loaded": AGENT_CLASS is not None,
+        "redis_listener_active": REDIS_LISTENER is not None,
+    }
 
 
 @app.post("/init")
@@ -67,6 +82,37 @@ def init(req: InitRequest):
         return {"status": "initialized", "player_id": req.player_id}
 
     raise HTTPException(status_code=400, detail="Failed to load agent")
+
+
+@app.post("/init_redis")
+def init_redis(req: InitRedisRequest):
+    global AGENT_INSTANCE, REDIS_LISTENER
+
+    if not req.code:
+        raise HTTPException(status_code=400, detail="No code provided")
+    if not req.game_id:
+        raise HTTPException(status_code=400, detail="No game_id provided")
+
+    if not load_agent_from_code(req.code):
+        raise HTTPException(status_code=400, detail="Failed to load agent")
+
+    AGENT_INSTANCE = AGENT_CLASS(player_id=req.player_id)
+
+    from bot_redis import start_listener_thread
+
+    REDIS_LISTENER = start_listener_thread(
+        redis_url=req.redis_url,
+        game_id=req.game_id,
+        agent_instance=AGENT_INSTANCE,
+        player_id=req.player_id,
+    )
+
+    return {
+        "status": "initialized",
+        "player_id": req.player_id,
+        "game_id": req.game_id,
+        "redis_url": req.redis_url,
+    }
 
 
 @app.get("/game/state")
@@ -115,15 +161,16 @@ def choose_action(req: ChooseRequest):
         if action is None:
             return {"action": None, "reason": "no_legal_actions"}
 
-        return {
-            "action": {
-                "type": type(action).__name__,
-                "template_id": getattr(action, "template_id", None),
-                "x": getattr(action, "x", None),
-                "y": getattr(action, "y", None),
-                "is_rotated_180": getattr(action, "is_rotated_180", False),
-            }
+        result = {
+            "type": type(action).__name__,
+            "template_id": getattr(action, "template_id", None),
+            "x": getattr(action, "x", None),
+            "y": getattr(action, "y", None),
+            "is_rotated_180": getattr(action, "is_rotated_180", False),
+            "templates": getattr(action, "templates", None),
+            "repair_equipment": getattr(action, "repair_equipment", None),
         }
+        return {"action": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

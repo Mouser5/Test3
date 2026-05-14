@@ -1,6 +1,5 @@
 import random
 from typing import Tuple, Optional, Dict, List
-from itertools import combinations
 
 from cards import (
     TunnelCardTemplate,
@@ -25,6 +24,7 @@ from state import (
     PlacedCard,
     ObservableMatchState,
     ObservablePlayerState,
+    reset_card_id_counter,
 )
 from registry import REGISTRY, setup_global_registry
 from board import BoardEngine
@@ -32,6 +32,7 @@ from board import BoardEngine
 
 class Game:
     def __init__(self):
+        reset_card_id_counter()
         setup_global_registry()
 
         self.board_engine = BoardEngine(REGISTRY)
@@ -41,13 +42,6 @@ class Game:
         self.state.players[1] = PlayerState(player_id=1)
         self.start_positions = {0: (-1, 0), 1: (1, 0)}
 
-        self.board_bounds = {
-            "min_x": -3,
-            "max_x": 3,
-            "min_y": -9,
-            "max_y": 0,
-        }
-
         self.state.first_player_in_round = random.randint(0, 1)
         self.state.current_player_id = self.state.first_player_in_round
 
@@ -55,15 +49,8 @@ class Game:
         self._setup_board()
         self._deal_initial_cards()
 
-    def _is_within_bounds(self, x: int, y: int) -> bool:
-        return (
-            self.board_bounds["min_x"] <= x <= self.board_bounds["max_x"]
-            and self.board_bounds["min_y"] <= y <= self.board_bounds["max_y"]
-        )
-
     def _build_decks(self):
-        """Быстрая сборка колод из ID-строк (без глубокого копирования объектов)."""
-        deck = []
+        deck_template_ids = []
         counts = {
             "tunnel_cross": 10,
             "tunnel_t": 10,
@@ -87,7 +74,7 @@ class Game:
             counts[f"rep_{eq.name}"] = 3
 
         for t_id, count in counts.items():
-            deck.extend([t_id] * count)
+            deck_template_ids.extend([t_id] * count)
 
         gold_deck = [
             "gold_1_ud",
@@ -98,26 +85,28 @@ class Game:
             "gold_3_t",
         ]
 
-        random.shuffle(deck)
+        random.shuffle(deck_template_ids)
         random.shuffle(gold_deck)
-        self.state.deck = deck
+
+        self.state.deck = list(range(1, len(deck_template_ids) + 1))
+        self.state.deck_template_ids = deck_template_ids
         self.state.gold_deck = gold_deck
 
     def _setup_board(self):
-        """Установка стартовых входов и скрытого золота."""
         self.state.board[BoardEngine.coord_to_str(*self.start_positions[0])] = (
-            PlacedCard(template_id="start_blue", owner_id=0)
+            PlacedCard(template_id="start_blue", owner_id=0, unique_id=9001)
         )
         self.state.board[BoardEngine.coord_to_str(*self.start_positions[1])] = (
-            PlacedCard(template_id="start_green", owner_id=1)
+            PlacedCard(template_id="start_green", owner_id=1, unique_id=9002)
         )
 
         gold_positions = [(-2, -5), (0, -5), (2, -5), (-1, -7), (1, -7), (0, -9)]
-        for pos in gold_positions:
+        gold_start_id = 8001
+        for i, pos in enumerate(gold_positions):
             if self.state.gold_deck:
                 g_id = self.state.gold_deck.pop()
                 self.state.board[BoardEngine.coord_to_str(*pos)] = PlacedCard(
-                    template_id=g_id, owner_id=None
+                    template_id=g_id, owner_id=None, unique_id=gold_start_id + i
                 )
 
     def _deal_initial_cards(self):
@@ -126,13 +115,44 @@ class Game:
             cards_count = 5 if p_id == second_player else 4
             for _ in range(cards_count):
                 if self.state.deck:
-                    self.state.players[p_id].hand.append(self.state.deck.pop())
+                    card_id = self.state.deck.pop()
+                    template_id = self.state.deck_template_ids.pop(0)
+                    self.state.players[p_id].hand.append(card_id)
+                    self.state.players[p_id].card_id_to_template[card_id] = template_id
 
-    def step(self, action: AgentAction) -> Tuple[bool, str, Optional[int]]:
-        """Единая точка входа изменения состояния (для человека и для RL-агента)."""
+    def get_template_by_card_id(self, card_id: int) -> Optional[str]:
+        p_id = self.state.current_player_id
+        return self.state.players[p_id].card_id_to_template.get(card_id)
+
+    def get_template_by_card_id_for_player(
+        self, card_id: int, player_id: int
+    ) -> Optional[str]:
+        return self.state.players[player_id].card_id_to_template.get(card_id)
+
+    def set_hand_with_templates(
+        self, player_id: int, card_ids: List[int], template_ids: List[str]
+    ):
+        """Установить карты в руке с указанием соответствия ID->template."""
+        if len(card_ids) != len(template_ids):
+            raise ValueError("Размеры списков карт и шаблонов не совпадают")
+
+        player = self.state.players[player_id]
+        player.hand = card_ids.copy()
+        player.card_id_to_template = dict(zip(card_ids, template_ids))
+
+    def step(self, action: AgentAction) -> Tuple[bool, str, Optional[int], str]:
         if self.is_game_over():
-            return False, "Игра уже окончена.", None
-
+            return False, "Игра уже окончена.", None,""
+        template_id=""
+        if not isinstance(action, ActionDiscard):
+            p_id = self.state.current_player_id
+            player_state = self.state.players[p_id]
+            lookup_key = (
+                int(action.template_id)
+                if isinstance(action.template_id, str)
+                else action.template_id
+            )
+            template_id = player_state.card_id_to_template.get(lookup_key)
         if isinstance(action, ActionBuild):
             success, msg, rev_gold = self._handle_build(action)
         elif isinstance(action, ActionPlayBoardUtility):
@@ -142,25 +162,29 @@ class Game:
         elif isinstance(action, ActionDiscard):
             success, msg, rev_gold = self._handle_discard(action)
         else:
-            return False, "Неизвестный тип действия.", None
+            return False, "Неизвестный тип действия.", None,""
 
         if success:
             self.state.current_player_id = 1 - self.state.current_player_id
             self.state.turn_number += 1
 
-        return success, msg, rev_gold
+        return success, msg, rev_gold,template_id
 
     def _handle_build(self, action: ActionBuild) -> Tuple[bool, str, Optional[int]]:
         p_id = self.state.current_player_id
         player_state = self.state.players[p_id]
 
-        if action.template_id not in player_state.hand:
+        lookup_key = (
+            int(action.template_id)
+            if isinstance(action.template_id, str)
+            else action.template_id
+        )
+        template_id = player_state.card_id_to_template.get(lookup_key)
+
+        if template_id is None:
             return False, "Такой карты нет в руке.", None
 
-        if not self._is_within_bounds(action.x, action.y):
-            return False, "Координаты за пределами поля.", None
-
-        template = REGISTRY.get(action.template_id)
+        template = REGISTRY.get(template_id)
 
         if not isinstance(
             template, (TunnelCardTemplate, DoorCardTemplate, LadderCardTemplate)
@@ -171,7 +195,7 @@ class Game:
             return False, "Инвентарь сломан!", None
 
         placed = PlacedCard(
-            template_id=action.template_id,
+            template_id=template_id,
             owner_id=p_id,
             is_rotated_180=action.is_rotated_180,
         )
@@ -180,7 +204,6 @@ class Game:
 
         coord_key = BoardEngine.coord_to_str(action.x, action.y)
 
-        # Полная валидация движком перед постановкой
         if not self.board_engine.is_move_valid(
             action.x,
             action.y,
@@ -196,12 +219,15 @@ class Game:
         if isinstance(template, LadderCardTemplate):
             player_state.ladders.add(coord_key)
 
-        # Удаление 1 экземпляра шаблона из руки
-        player_state.hand.remove(action.template_id)
+        del player_state.card_id_to_template[lookup_key]
+        player_state.hand.remove(lookup_key)
 
         revealed_gold = self._check_and_reveal_gold(action.x, action.y, placed)
         if self.state.deck:
-            player_state.hand.append(self.state.deck.pop())
+            new_card_id = self.state.deck.pop()
+            new_template_id = self.state.deck_template_ids.pop(0)
+            player_state.hand.append(new_card_id)
+            player_state.card_id_to_template[new_card_id] = new_template_id
 
         return (
             True,
@@ -215,10 +241,16 @@ class Game:
         p_id = self.state.current_player_id
         player_state = self.state.players[p_id]
 
-        if action.template_id not in player_state.hand:
+        lookup_key = (
+            int(action.template_id)
+            if isinstance(action.template_id, str)
+            else action.template_id
+        )
+        template_id = player_state.card_id_to_template.get(lookup_key)
+        if template_id is None:
             return False, "Такой карты нет в руке.", None
 
-        template = REGISTRY.get(action.template_id)
+        template = REGISTRY.get(template_id)
         coord_key = BoardEngine.coord_to_str(action.x, action.y)
         target_placed = self.state.board.get(coord_key)
 
@@ -240,7 +272,7 @@ class Game:
             if not self.board_engine.is_move_valid(
                 action.x,
                 action.y,
-                PlacedCard(template_id=action.template_id),
+                PlacedCard(template_id=template_id),
                 self.start_positions[p_id],
                 p_id,
                 self.state.board,
@@ -248,7 +280,6 @@ class Game:
             ):
                 return False, "Нельзя обвалить.", None
 
-            # Если обвалили лестницу - удаляем из кэша O(1)
             obval_tpl = REGISTRY.get(target_placed.template_id)
             if (
                 isinstance(obval_tpl, LadderCardTemplate)
@@ -270,9 +301,13 @@ class Game:
             player_state.known_secrets.add(coord_key)
             msg = f"[СЕКРЕТ] Под ({action.x}, {action.y}) спрятано {target_tpl.gold_value} слитков!"
 
-        player_state.hand.remove(action.template_id)
+        del player_state.card_id_to_template[lookup_key]
+        player_state.hand.remove(lookup_key)
         if self.state.deck:
-            player_state.hand.append(self.state.deck.pop())
+            new_card_id = self.state.deck.pop()
+            new_template_id = self.state.deck_template_ids.pop(0)
+            player_state.hand.append(new_card_id)
+            player_state.card_id_to_template[new_card_id] = new_template_id
 
         return True, msg, None
 
@@ -282,10 +317,16 @@ class Game:
         p_id = self.state.current_player_id
         player_state = self.state.players[p_id]
 
-        if action.template_id not in player_state.hand:
+        lookup_key = (
+            int(action.template_id)
+            if isinstance(action.template_id, str)
+            else action.template_id
+        )
+        template_id = player_state.card_id_to_template.get(lookup_key)
+        if template_id is None:
             return False, "Такой карты нет в руке.", None
 
-        template = REGISTRY.get(action.template_id)
+        template = REGISTRY.get(template_id)
         target_state = self.state.players[action.target_player_id]
         eq = template.equipment_type
         msg = ""
@@ -302,9 +343,13 @@ class Game:
             target_state.broken_equipments.remove(eq)
             msg = f"Игрок {p_id} починил {eq.value} игроку {action.target_player_id}."
 
-        player_state.hand.remove(action.template_id)
+        del player_state.card_id_to_template[lookup_key]
+        player_state.hand.remove(lookup_key)
         if self.state.deck:
-            player_state.hand.append(self.state.deck.pop())
+            new_card_id = self.state.deck.pop()
+            new_template_id = self.state.deck_template_ids.pop(0)
+            player_state.hand.append(new_card_id)
+            player_state.card_id_to_template[new_card_id] = new_template_id
 
         return True, msg, None
 
@@ -322,25 +367,26 @@ class Game:
         else:
             msg = f"Сброшено карт: {len(action.templates)}."
 
-        # Безопасное удаление шаблонов из руки
-        for tpl in action.templates:
-            if tpl in state.hand:
-                state.hand.remove(tpl)
-            else:
-                return False, f"Карты {tpl} нет в руке.", None
+        for card_id in action.templates:
+            if card_id not in state.hand:
+                return False, f"Карты {card_id} нет в руке.", None
 
-        # Добрать карты (1 для починки, иначе по количеству сброшенных)
+            del state.card_id_to_template[card_id]
+            state.hand.remove(card_id)
+
         cards_to_draw = 1 if action.repair_equipment else len(action.templates)
         for _ in range(cards_to_draw):
             if self.state.deck:
-                state.hand.append(self.state.deck.pop())
+                new_card_id = self.state.deck.pop()
+                new_template_id = self.state.deck_template_ids.pop(0)
+                state.hand.append(new_card_id)
+                state.card_id_to_template[new_card_id] = new_template_id
 
         return True, msg, None
 
     def _check_and_reveal_gold(
         self, x: int, y: int, placed_card: PlacedCard
     ) -> Optional[int]:
-        """Правильное суммирование золота без перезаписи."""
         revealed_amount = 0
         found_gold = False
         template = REGISTRY.get(placed_card.template_id)
@@ -367,10 +413,6 @@ class Game:
         return revealed_amount if found_gold else None
 
     def get_legal_actions(self) -> List[AgentAction]:
-        """
-        Молниеносный генератор легальных ходов (Action Mask) для ИИ.
-        Использует Frontier BFS и математическую дедупликацию.
-        """
         if self.is_game_over():
             return []
 
@@ -378,42 +420,59 @@ class Game:
         p_id = self.state.current_player_id
         player_state = self.state.players[p_id]
 
-        # 1. ГЕНЕРАЦИЯ СБРОСА (Отвязка от индексов: абсолютная дедупликация)
         unique_hand = set(player_state.hand)
-        for tpl in unique_hand:
-            legal_actions.append(ActionDiscard(templates=[tpl]))
 
-        # Учитываем возможность сбросить две одинаковые карты, если их > 1 в руке
-        for tpl_tuple in set(combinations(sorted(player_state.hand), 2)):
-            legal_actions.append(ActionDiscard(templates=list(tpl_tuple)))
-            for eq in player_state.broken_equipments:
-                legal_actions.append(
-                    ActionDiscard(templates=list(tpl_tuple), repair_equipment=eq)
-                )
+        for card_id in unique_hand:
+            template_id = player_state.card_id_to_template.get(card_id)
+            if template_id is None:
+                continue
+            legal_actions.append(ActionDiscard(templates=[card_id]))
 
-        # 2. ФРОНТИР ДЛЯ СТРОИТЕЛЬСТВА (1 вызов BFS вместо сотен)
+        card_ids = list(player_state.hand)
+        for i in range(len(card_ids)):
+            for j in range(i + 1, len(card_ids)):
+                cid1, cid2 = card_ids[i], card_ids[j]
+                tpl1 = player_state.card_id_to_template.get(cid1)
+                tpl2 = player_state.card_id_to_template.get(cid2)
+                if tpl1 and tpl2:
+                    legal_actions.append(ActionDiscard(templates=[cid1, cid2]))
+                    for eq in player_state.broken_equipments:
+                        legal_actions.append(
+                            ActionDiscard(templates=[cid1, cid2], repair_equipment=eq)
+                        )
+
         frontier_coords = self.board_engine.get_player_frontier(
             self.start_positions[p_id], p_id, self.state.board, player_state.ladders
         )
 
-        for t_id in unique_hand:
-            template = REGISTRY.get(t_id)
+        card_id_to_template = player_state.card_id_to_template
+        template_to_card_ids: Dict[str, List[int]] = {}
+        for cid, tpl in card_id_to_template.items():
+            if tpl not in template_to_card_ids:
+                template_to_card_ids[tpl] = []
+            template_to_card_ids[tpl].append(cid)
+
+        for template_id, card_ids_list in template_to_card_ids.items():
+            try:
+                template = REGISTRY.get(template_id)
+            except Exception as e:
+                print(f"   [GAME DEBUG] ERROR getting template {template_id}: {e}")
+                continue
 
             if isinstance(
                 template, (TunnelCardTemplate, DoorCardTemplate, LadderCardTemplate)
             ):
                 if not player_state.broken_equipments:
                     for x, y in frontier_coords:
-                        if not self._is_within_bounds(x, y):
-                            continue
                         for is_rot in [False, True]:
                             placed = PlacedCard(
-                                template_id=t_id, owner_id=p_id, is_rotated_180=is_rot
+                                template_id=template_id,
+                                owner_id=p_id,
+                                is_rotated_180=is_rot,
                             )
                             if isinstance(template, DoorCardTemplate):
                                 placed.is_locked = True
 
-                            # ИСПРАВЛЕНИЕ: Геометрическая проверка за O(1), BFS отключен!
                             if self.board_engine.is_move_valid(
                                 x,
                                 y,
@@ -424,16 +483,17 @@ class Game:
                                 player_state.ladders,
                                 skip_path_check=True,
                             ):
-                                legal_actions.append(
-                                    ActionBuild(
-                                        template_id=t_id,
-                                        x=x,
-                                        y=y,
-                                        is_rotated_180=is_rot,
+                                for card_id in card_ids_list:
+                                    legal_actions.append(
+                                        ActionBuild(
+                                            template_id=card_id,
+                                            x=x,
+                                            y=y,
+                                            is_rotated_180=is_rot,
+                                        )
                                     )
-                                )
+                                    break
 
-            # 3. УТИЛИТАРНЫЕ КАРТЫ НА ПОЛЕ (Ключ, Обвал, Карта Сокровищ)
             elif isinstance(template, ActionCardTemplate) and template.action_type in [
                 ActionType.KEY,
                 ActionType.ROCKFALL,
@@ -441,7 +501,10 @@ class Game:
             ]:
                 for coord_key, target_placed in self.state.board.items():
                     tx, ty = BoardEngine.str_to_coord(coord_key)
-                    target_tpl = REGISTRY.get(target_placed.template_id)
+                    try:
+                        target_tpl = REGISTRY.get(target_placed.template_id)
+                    except Exception:
+                        continue
 
                     if template.action_type == ActionType.KEY:
                         if (
@@ -457,34 +520,45 @@ class Game:
                                 self.state.board,
                                 player_state.ladders,
                             ):
-                                legal_actions.append(
-                                    ActionPlayBoardUtility(template_id=t_id, x=tx, y=ty)
-                                )
+                                for card_id in card_ids_list:
+                                    legal_actions.append(
+                                        ActionPlayBoardUtility(
+                                            template_id=card_id, x=tx, y=ty
+                                        )
+                                    )
+                                    break
 
                     elif template.action_type == ActionType.ROCKFALL:
                         if self.board_engine.is_move_valid(
                             tx,
                             ty,
-                            PlacedCard(template_id=t_id),
+                            PlacedCard(template_id=template_id),
                             self.start_positions[p_id],
                             p_id,
                             self.state.board,
                             player_state.ladders,
                         ):
-                            legal_actions.append(
-                                ActionPlayBoardUtility(template_id=t_id, x=tx, y=ty)
-                            )
+                            for card_id in card_ids_list:
+                                legal_actions.append(
+                                    ActionPlayBoardUtility(
+                                        template_id=card_id, x=tx, y=ty
+                                    )
+                                )
+                                break
 
                     elif template.action_type == ActionType.MAP:
                         if (
                             isinstance(target_tpl, GoldCardTemplate)
                             and not target_placed.is_revealed
                         ):
-                            legal_actions.append(
-                                ActionPlayBoardUtility(template_id=t_id, x=tx, y=ty)
-                            )
+                            for card_id in card_ids_list:
+                                legal_actions.append(
+                                    ActionPlayBoardUtility(
+                                        template_id=card_id, x=tx, y=ty
+                                    )
+                                )
+                                break
 
-            # 4. УТИЛИТАРНЫЕ КАРТЫ НА ИГРОКА (Сломать, Починить)
             elif isinstance(template, ActionCardTemplate) and template.action_type in [
                 ActionType.SABOTAGE,
                 ActionType.REPAIR,
@@ -495,25 +569,29 @@ class Game:
                         template.action_type == ActionType.SABOTAGE
                         and eq not in target_state.broken_equipments
                     ):
-                        legal_actions.append(
-                            ActionPlayPlayerUtility(
-                                template_id=t_id, target_player_id=target_p_id
+                        for card_id in card_ids_list:
+                            legal_actions.append(
+                                ActionPlayPlayerUtility(
+                                    template_id=card_id, target_player_id=target_p_id
+                                )
                             )
-                        )
+                            break
                     elif (
                         template.action_type == ActionType.REPAIR
                         and eq in target_state.broken_equipments
                     ):
-                        legal_actions.append(
-                            ActionPlayPlayerUtility(
-                                template_id=t_id, target_player_id=target_p_id
+                        for card_id in card_ids_list:
+                            legal_actions.append(
+                                ActionPlayPlayerUtility(
+                                    template_id=card_id, target_player_id=target_p_id
+                                )
                             )
-                        )
+                            break
 
+        # print(f"   [GAME DEBUG] Returning {len(legal_actions)} legal actions")
         return legal_actions
 
     def get_observation(self, target_player_id: int) -> ObservableMatchState:
-        """Сензурирует состояние игры для конкретного агента, скрывая закрытое золото и чужие руки."""
         obs_board = {}
         player_secrets = self.state.players[target_player_id].known_secrets
 
@@ -521,7 +599,6 @@ class Game:
             tpl = REGISTRY.get(placed_card.template_id)
             if isinstance(tpl, GoldCardTemplate) and not placed_card.is_revealed:
                 if coord_key not in player_secrets:
-                    # Маскируем золотую жилу пустышкой
                     obs_board[coord_key] = placed_card.model_copy(
                         update={"template_id": "hidden_gold"}
                     )
@@ -567,7 +644,7 @@ class Game:
         return False
 
     def is_game_over(self) -> bool:
-        return self.state.is_game_over or self.state.round_number > 1
+        return self.state.is_game_over or self.state.round_number > 2
 
     def _start_new_round(self):
         round_scores = self.calculate_scores()
@@ -577,7 +654,7 @@ class Game:
 
         self.state.round_number += 1
 
-        if self.state.round_number > 1:
+        if self.state.round_number > 2:
             self.state.is_game_over = True
             return
 
@@ -590,6 +667,7 @@ class Game:
         self.state.turn_number = 1
         self.state.board.clear()
         self.state.deck.clear()
+        self.state.deck_template_ids.clear()
         self.state.gold_deck.clear()
 
         for p_id in [0, 1]:
@@ -597,6 +675,7 @@ class Game:
             self.state.players[p_id].broken_equipments.clear()
             self.state.players[p_id].known_secrets.clear()
             self.state.players[p_id].ladders.clear()
+            self.state.players[p_id].card_id_to_template.clear()
 
         self._build_decks()
         self._setup_board()
@@ -609,10 +688,6 @@ class Game:
         return False, None
 
     def calculate_scores(self) -> Dict[int, int]:
-        """
-        O(1) подсчет очков в строгом соответствии с правилами игры.
-        Вскрытое золото гарантированно остается за игроком, даже если путь обвалили позже.
-        """
         scores = {0: 0, 1: 0}
         for p_card in self.state.board.values():
             tpl = REGISTRY.get(p_card.template_id)

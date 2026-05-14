@@ -1,9 +1,7 @@
 import sys
-import os
+from config import LOG_DIR
 from loguru import logger
-from pathlib import Path
 
-LOG_DIR = Path(os.getenv("LOG_DIR", "/app/logs"))
 LOG_DIR.mkdir(exist_ok=True)
 
 logger.remove()
@@ -40,6 +38,66 @@ def log_game_start(game_id: str, bot1_name: str, bot2_name: str):
 def log_game_end(game_id: str, winner: str, scores: dict, turns: int):
     logger.info(
         f"🏁 Игра завершена | game_id={game_id} | winner={winner} | scores={scores} | turns={turns}"
+    )
+
+
+def log_tournament_end(
+    tournament_id: int,
+    tournament_name: str,
+    total_games: int,
+    total_turns: int,
+    results: dict,
+    elapsed_time: float,
+):
+    from datetime import datetime
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    sorted_results = sorted(results.items(), key=lambda x: x[1]["wins"], reverse=True)
+
+    logger.info("=" * 60)
+    logger.info(f"🏆 ТУРНИР ЗАВЕРШЕН | {timestamp}")
+    logger.info(f"   ID: {tournament_id}")
+    logger.info(f"   Название: {tournament_name}")
+    logger.info(f"   Всего игр: {total_games}")
+    logger.info(f"   Всего ходов: {total_turns}")
+    logger.info(f"   Время: {elapsed_time:.2f} сек")
+    logger.info("-" * 60)
+    logger.info("📊 РЕЗУЛЬТАТЫ:")
+
+    for bot_name, stats in sorted_results:
+        win_rate = (stats["wins"] / stats["games"] * 100) if stats["games"] > 0 else 0
+        logger.info(
+            f"   {bot_name}: "
+            f"{stats['wins']}W/{stats['losses']}L/{stats['draws']}D | "
+            f"WR: {win_rate:.1f}% | "
+            f"Очки: {stats['total_score']} | "
+            f"Игр: {stats['games']}"
+        )
+
+    logger.info("=" * 60)
+
+
+def log_tournament_game(
+    tournament_id: int,
+    game_num: int,
+    bot1_name: str,
+    bot2_name: str,
+    bot1_score: int,
+    bot2_score: int,
+    winner: int,
+    turns: int,
+):
+    from datetime import datetime
+
+    winner_name = bot1_name if winner == 0 else (bot2_name if winner == 1 else "Ничья")
+    timestamp = datetime.now().strftime("%H:%M:%S")
+
+    logger.info(
+        f"🎮 [t{tournament_id}] Игра {game_num}: "
+        f"{bot1_name}({bot1_score}) vs {bot2_name}({bot2_score}) | "
+        f"Победитель: {winner_name} | "
+        f"Ходов: {turns} | {timestamp}"
     )
 
 
@@ -83,9 +141,9 @@ def log_action_result(game_id: str, player_id: int, success: bool, message: str)
         )
 
 
-def log_container_start(container_id: str, bot_code: str = None):
+def log_container_start(container_id: str, port: str, bot_code: str = None):
     logger.info(
-        f"🐳 Запуск контейнера бота | container_id={container_id} | код={'получен' if bot_code else 'не получен'}"
+        f"🐳 Контейнер запущен | container_id={container_id} | port={port} | код={'получен' if bot_code else 'не получен'}"
     )
 
 
@@ -99,3 +157,15 @@ def log_container_error(container_id: str, error: str):
     logger.error(
         f"❌ Ошибка контейнера бота | container_id={container_id} | error={error}"
     )
+
+
+def log_redis_connected(redis_url: str):
+    logger.info(f"🔴 Redis подключён | url={redis_url}")
+
+
+def log_redis_error(operation: str, error: str):
+    logger.error(f"🔴 Redis ошибка | operation={operation} | error={error}")
+
+
+def log_redis_operation(operation: str, game_id: str, details: str = ""):
+    logger.debug(f"🔴 Redis | op={operation} | game_id={game_id} {details}")

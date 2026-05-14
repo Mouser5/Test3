@@ -43,7 +43,28 @@ package "Встроенные агенты" {
 package "Пользовательский агент" {
     class UserAgent <<Ваш класс>> {
         - player_id: int
-        + choose_action(game: Game): Optional[AgentAction]
+        + choose_action(game: GameProxy): Optional[AgentAction]
+    }
+}
+
+package "Прокси доступа" {
+    class GameProxy {
+        + player_id: int
+        + get_legal_actions(): List[AgentAction]
+        + get_hand(): List[str]
+        + get_board(): Dict
+        + get_broken_equipments(player_id: int): List[str]
+        + get_scores(): Dict[int, int]
+        + is_game_over(): bool
+    }
+
+    class Game {
+        + player_id: int
+        + step(action): Tuple
+        + get_legal_actions(): List[AgentAction]
+        + get_observation(player_id): ObservableMatchState
+        + is_round_over(): bool
+        + is_game_over(): bool
     }
 }
 
@@ -54,12 +75,18 @@ AgentInterface <|.. UserAgent : реализует
 
 SmartAgent --|> HeuristicAgent : наследует
 
+UserAgent --> GameProxy : получает (контейнер)
+RandomAgent --> Game : получает (локально)
+HeuristicAgent --> Game : получает (локально)
+
 note right of UserAgent
   **Требования:**
   1. Конструктор принимает player_id: int
-  2. Метод choose_action(game) -> AgentAction
-  3. Используйте game.get_legal_actions()
-  4. Возвращайте None если нет ходов
+  2. Метод choose_action(game: GameProxy) -> AgentAction
+  3. Используйте game.get_legal_actions(), game.get_hand(), game.get_board()
+  4. Свои поломанные предметы: game.get_broken_equipments(game.player_id)
+  5. Поломанные предметы оппонента: game.get_broken_equipments(1 - game.player_id)
+  6. Возвращайте None если нет ходов
 end note
 
 note bottom of AgentInterface
@@ -68,6 +95,16 @@ note bottom of AgentInterface
   - ActionPlayBoardUtility
   - ActionPlayPlayerUtility
   - ActionDiscard
+end note
+
+note bottom of GameProxy
+  **Ограниченный обзор:**
+  - Своя рука (get_hand)
+  - Доска с туман войны (get_board)
+  - Поломанные предметы обоих (get_broken_equipments)
+  - Счёт (get_scores)
+  - Легальные действия (get_legal_actions)
+  - Рука оппонента скрыта
 end note
 
 @enduml

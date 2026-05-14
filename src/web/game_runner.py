@@ -1,6 +1,6 @@
 import sys
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 import time
 import traceback
@@ -17,7 +17,8 @@ from actions import (
 )
 from registry import REGISTRY
 from random_agent import RandomAgent
-from heuristic_agent import HeuristicAgent, SmartAgent
+from heuristic_agent import HeuristicAgent
+from smart_agent import SmartAgent
 from view import ConsoleView
 
 
@@ -35,7 +36,8 @@ class GameLog:
     player_id: int
     action_type: str
     action_description: str
-    message: str
+    message: str | None = None
+    action_dsl: str | None = None
     gold_found: Optional[int] = None
 
 
@@ -61,10 +63,21 @@ class BenchmarkResult:
     turns_per_second: float
 
 
+@dataclass
+class TournamentResult:
+    tournament_id: int
+    total_games: int
+    total_turns: int
+    results: Dict[str, Dict[str, int]]
+    elapsed_time: float
+
+
 def _format_action(action: AgentAction, game: Game) -> str:
     tpl_id = getattr(action, "template_id", None)
-    tpl = REGISTRY.get(tpl_id) if tpl_id else None
-    tpl_name = tpl.name if tpl else tpl_id
+    _tpl_id = game.get_template_by_card_id(tpl_id)
+
+    tpl = REGISTRY.get(_tpl_id) if _tpl_id else None
+    tpl_name = tpl.name if tpl else _tpl_id
 
     if isinstance(action, ActionBuild):
         rot = " (повёрнута)" if action.is_rotated_180 else ""
@@ -81,12 +94,76 @@ def _format_action(action: AgentAction, game: Game) -> str:
     return str(action.type)
 
 
+def action_to_dsl(action: AgentAction, player_id: int) -> str:
+    lines = [f"P{player_id}"]
+
+    if isinstance(action, ActionBuild):
+        lines.append("1")
+        lines.append(str(action.template_id))
+        lines.append(f"{action.x};{action.y}")
+        lines.append("1" if action.is_rotated_180 else "0")
+    elif isinstance(action, ActionPlayBoardUtility):
+        lines.append("1")
+        lines.append(str(action.template_id))
+        lines.append(f"{action.x};{action.y}")
+        lines.append("0")
+    elif isinstance(action, ActionPlayPlayerUtility):
+        lines.append("2")
+        lines.append(str(action.template_id))
+        lines.append(str(action.target_player_id))
+        lines.append("0")
+    elif isinstance(action, ActionDiscard):
+        lines.append("3")
+        if action.templates:
+            lines.append(";".join(str(t) for t in action.templates))
+        else:
+            lines.append("")
+        lines.append("0")
+    else:
+        lines.append("0")
+        lines.append("")
+        lines.append("")
+        lines.append("0")
+
+    return "\n".join(lines)
+
+
+def save_game_log_to_db(
+    db_session,
+    game_id: str,
+    dsl_log: str,
+    scores_p0: int,
+    scores_p1: int,
+    winner: Optional[int],
+    turns: int,
+    bot1_code: Optional[str] = None,
+    bot2_code: Optional[str] = None,
+):
+    from web.models import GameLog
+
+    game_log = GameLog(
+        game_id=game_id,
+        bot1_code=bot1_code,
+        bot2_code=bot2_code,
+        dsl_log=dsl_log,
+        scores_p0=scores_p0,
+        scores_p1=scores_p1,
+        winner=winner,
+        turns=turns,
+    )
+    db_session.add(game_log)
+    db_session.commit()
+
+
 def run_single_game(
     agent1_class: type,
     agent2_class: type,
     agent1_name: str = "Агент 1",
     agent2_name: str = "Агент 2",
     verbose: bool = True,
+    db_session=None,
+    game_id: str = None,
+    save_to_db: bool = False,
 ) -> SingleGameResult:
     game = Game()
     agents = {
@@ -98,6 +175,7 @@ def run_single_game(
     errors: List[str] = []
     round_scores: List[Dict[int, int]] = []
     turn_count = 0
+    dsl_lines: List[str] = []
 
     while not game.is_game_over():
         while not game.is_round_over():
@@ -117,11 +195,14 @@ def run_single_game(
                             message="Пропуск хода",
                         )
                     )
+                    dsl_lines.append(f"P{curr_p}\n0\n\n\n0")
                     game.state.current_player_id = 1 - curr_p
                     continue
 
-                success, msg, rev_gold = game.step(action)
+                success, msg, rev_gold, _ = game.step(action)
                 turn_count += 1
+
+                dsl_lines.append(action_to_dsl(action, curr_p))
 
                 agent_name = agent1_name if curr_p == 0 else agent2_name
                 action_desc = _format_action(action, game)
@@ -173,6 +254,18 @@ def run_single_game(
         winner = 1
         winner_name = agent2_name
 
+    if save_to_db and db_session and game_id:
+        dsl_log = "\n".join(dsl_lines)
+        save_game_log_to_db(
+            db_session=db_session,
+            game_id=game_id,
+            dsl_log=dsl_log,
+            scores_p0=total_scores[0],
+            scores_p1=total_scores[1],
+            winner=winner,
+            turns=turn_count,
+        )
+
     return SingleGameResult(
         winner=winner,
         winner_name=winner_name,
@@ -213,7 +306,7 @@ def run_benchmark(
                             game.state.current_player_id = 1 - curr_p
                             continue
 
-                        success, msg, _ = game.step(action)
+                        success, msg, _, _ = game.step(action)
                         if not success:
                             total_errors += 1
                         total_turns += 1
@@ -259,3 +352,382 @@ def get_board_ascii(game: Game) -> str:
         view.print_board(game.state)
 
     return f.getvalue()
+
+
+def create_game_for_tournament(
+    agent1_class: type,
+    agent2_class: type,
+    hand1: List[int],
+    hand2: List[int],
+    hand1_templates: List[str],
+    hand2_templates: List[str],
+) -> Game:
+    print(f"   [DEBUG] Creating game with hands - P0: {hand1}, P1: {hand2}")
+    game = Game()
+    print(
+        f"   [DEBUG] Game created - board size: {len(game.state.board)}, deck size: {len(game.state.deck)}"
+    )
+
+    original_deck = game.state.deck.copy()
+    original_deck_template_ids = game.state.deck_template_ids.copy()
+
+    game.state.board.clear()
+    print(f"   [DEBUG] Board cleared - board size: {len(game.state.board)}")
+
+    game.state.gold_deck = [
+        "gold_1_ud",
+        "gold_1_lr",
+        "gold_2_corner",
+        "gold_2_t",
+        "gold_3_cross",
+        "gold_3_t",
+    ]
+
+    game._setup_board()
+    print(
+        f"   [DEBUG] Board setup done - gold positions: {[k for k, v in game.state.board.items() if 'gold' in v.template_id]}"
+    )
+
+    game.state.deck = original_deck
+    game.state.deck_template_ids = original_deck_template_ids
+
+    game.state.players[0].hand = hand1.copy()
+    game.state.players[1].hand = hand2.copy()
+    game.state.players[0].card_id_to_template = dict(zip(hand1, hand1_templates))
+    game.state.players[1].card_id_to_template = dict(zip(hand2, hand2_templates))
+
+    print(
+        f"   [DEBUG] Hands restored - P0: {game.state.players[0].hand}, P1: {game.state.players[1].hand}"
+    )
+
+    return game
+
+
+def run_tournament(
+    bots: List[Tuple[str, type, str]],
+    db_session,
+    user_id: int,
+    tournament_name: str,
+) -> TournamentResult:
+    from web.models import (
+        Tournament,
+        TournamentGame,
+        TournamentResult as TournamentResultModel,
+        TournamentStatus,
+        User,
+    )
+    from web.logger import log_tournament_end, log_tournament_game
+
+    start_time = time.perf_counter()
+
+    tournament = Tournament(
+        user_id=user_id,
+        name=tournament_name,
+        status=TournamentStatus.running,
+    )
+    db_session.add(tournament)
+    db_session.commit()
+    tournament_id = tournament.id
+
+    results: Dict[str, Dict[str, int]] = {}
+    for _, _, bot_name in bots:
+        results[bot_name] = {
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "total_score": 0,
+            "games": 0,
+        }
+
+    total_games = 0
+    total_turns = 0
+
+    print(f"\n[TOURNAMENT] Starting tournament with {len(bots)} bots")
+
+    from web.redis_game_bridge import RedisGameBridge
+
+    bridge = RedisGameBridge()
+
+    for i, (bot1_code, bot1_class, bot1_name) in enumerate(bots):
+        for j, (bot2_code, bot2_class, bot2_name) in enumerate(bots):
+            if i == j:
+                continue
+
+            print(f"\n[TOURNAMENT] Match {i}x{j}: {bot1_name} vs {bot2_name}")
+
+            temp_game = Game()
+            hand1_orig = temp_game.state.players[0].hand.copy()
+            hand2_orig = temp_game.state.players[1].hand.copy()
+            hand1_templates = list(
+                temp_game.state.players[0].card_id_to_template.values()
+            )
+            hand2_templates = list(
+                temp_game.state.players[1].card_id_to_template.values()
+            )
+            print(f"[TOURNAMENT] Original hands - P0: {hand1_orig}, P1: {hand2_orig}")
+
+            game1 = create_game_for_tournament(
+                bot1_class,
+                bot2_class,
+                hand1_orig,
+                hand2_orig,
+                hand1_templates,
+                hand2_templates,
+            )
+            result1 = bridge.run_with_container(
+                container_player_id=0,
+                bot_code=bot1_code,
+                opponent_agent=bot2_class(1),
+                opponent_name=bot2_name,
+                bot_name=bot1_name,
+                game=game1,
+            )
+
+            if result1.get("error"):
+                print(f"[TOURNAMENT] Game 1 container error: {result1['error']}")
+                result1["winner"] = None
+                result1["scores"] = {0: 0, 1: 0}
+                result1["turns"] = 0
+
+            print(
+                f"[TOURNAMENT] Game 1 result: winner={result1['winner']}, scores={result1['scores']}, turns={result1['turns']}"
+            )
+            total_turns += result1["turns"]
+
+            tg1 = TournamentGame(
+                tournament_id=tournament_id,
+                bot1_id=None,
+                bot2_id=None,
+                bot1_name=bot1_name,
+                bot2_name=bot2_name,
+                game_order=total_games + 1,
+                bot1_score=result1["scores"][0],
+                bot2_score=result1["scores"][1],
+                winner=result1["winner"],
+                turns=result1["turns"],
+            )
+            db_session.add(tg1)
+            db_session.commit()
+
+            log_tournament_game(
+                tournament_id=tournament_id,
+                game_num=total_games + 1,
+                bot1_name=bot1_name,
+                bot2_name=bot2_name,
+                bot1_score=result1["scores"][0],
+                bot2_score=result1["scores"][1],
+                winner=result1["winner"],
+                turns=result1["turns"],
+            )
+
+            if result1["winner"] == 0:
+                results[bot1_name]["wins"] += 1
+                results[bot2_name]["losses"] += 1
+            elif result1["winner"] == 1:
+                results[bot1_name]["losses"] += 1
+                results[bot2_name]["wins"] += 1
+            else:
+                results[bot1_name]["draws"] += 1
+                results[bot2_name]["draws"] += 1
+
+            results[bot1_name]["total_score"] += result1["scores"][0]
+            results[bot2_name]["total_score"] += result1["scores"][1]
+            results[bot1_name]["games"] += 1
+            results[bot2_name]["games"] += 1
+
+            total_games += 1
+
+            game2 = create_game_for_tournament(
+                bot1_class,
+                bot2_class,
+                hand2_orig,
+                hand1_orig,
+                hand2_templates,
+                hand1_templates,
+            )
+            result2 = bridge.run_with_container(
+                container_player_id=0,
+                bot_code=bot1_code,
+                opponent_agent=bot2_class(1),
+                opponent_name=bot2_name,
+                bot_name=bot1_name,
+                game=game2,
+            )
+
+            if result2.get("error"):
+                print(f"[TOURNAMENT] Game 2 container error: {result2['error']}")
+                result2["winner"] = None
+                result2["scores"] = {0: 0, 1: 0}
+                result2["turns"] = 0
+
+            total_turns += result2["turns"]
+
+            tg2 = TournamentGame(
+                tournament_id=tournament_id,
+                bot1_id=None,
+                bot2_id=None,
+                bot1_name=bot2_name,
+                bot2_name=bot1_name,
+                game_order=total_games + 1,
+                bot1_score=result2["scores"][0],
+                bot2_score=result2["scores"][1],
+                winner=result2["winner"],
+                turns=result2["turns"],
+            )
+            db_session.add(tg2)
+            db_session.commit()
+
+            log_tournament_game(
+                tournament_id=tournament_id,
+                game_num=total_games + 1,
+                bot1_name=bot2_name,
+                bot2_name=bot1_name,
+                bot1_score=result2["scores"][0],
+                bot2_score=result2["scores"][1],
+                winner=result2["winner"],
+                turns=result2["turns"],
+            )
+
+            if result2["winner"] == 0:
+                results[bot1_name]["wins"] += 1
+                results[bot2_name]["losses"] += 1
+            elif result2["winner"] == 1:
+                results[bot1_name]["losses"] += 1
+                results[bot2_name]["wins"] += 1
+            else:
+                results[bot1_name]["draws"] += 1
+                results[bot2_name]["draws"] += 1
+
+            results[bot1_name]["total_score"] += result2["scores"][0]
+            results[bot2_name]["total_score"] += result2["scores"][1]
+            results[bot1_name]["games"] += 1
+            results[bot2_name]["games"] += 1
+
+            total_games += 1
+
+            db_session.commit()
+
+    for bot_name, stats in results.items():
+        tr = TournamentResultModel(
+            tournament_id=tournament_id,
+            bot_id=None,
+            bot_name=bot_name,
+            wins=stats["wins"],
+            losses=stats["losses"],
+            draws=stats["draws"],
+            total_score=stats["total_score"],
+            games_played=stats["games"],
+        )
+        db_session.add(tr)
+
+    sorted_results = sorted(results.items(), key=lambda x: x[1]["wins"], reverse=True)
+    if sorted_results:
+        top_bot_stats = sorted_results[0][1]
+        if top_bot_stats["games"] > 0:
+            user = db_session.query(User).filter(User.id == user_id).first()
+            if user:
+                user.winrate = int(top_bot_stats["wins"] / top_bot_stats["games"] * 100)
+                db_session.commit()
+
+    tournament.status = TournamentStatus.completed
+    db_session.commit()
+
+    elapsed = time.perf_counter() - start_time
+
+    log_tournament_end(
+        tournament_id=tournament_id,
+        tournament_name=tournament_name,
+        total_games=total_games,
+        total_turns=total_turns,
+        results=results,
+        elapsed_time=elapsed,
+    )
+
+    return TournamentResult(
+        tournament_id=tournament_id,
+        total_games=total_games,
+        total_turns=total_turns,
+        results=results,
+        elapsed_time=elapsed,
+    )
+
+
+def run_single_game_internal(
+    game: Game,
+    agents: Dict[int, object],
+    agent1_name: str,
+    agent2_name: str,
+) -> Dict:
+    turn_count = 0
+    errors = []
+
+    print(f"   [GAME DEBUG] Starting game: {agent1_name} vs {agent2_name}")
+    print(f"   [GAME DEBUG] Initial board: {len(game.state.board)} cards")
+    print(
+        f"   [GAME DEBUG] Initial hands - P0: {game.state.players[0].hand}, P1: {game.state.players[1].hand}"
+    )
+    print(f"   [GAME DEBUG] Initial deck size: {len(game.state.deck)}")
+    print(f"   [GAME DEBUG] Initial gold deck size: {len(game.state.gold_deck)}")
+    print(
+        f"   [GAME DEBUG] is_game_over: {game.is_game_over()}, is_round_over: {game.is_round_over()}"
+    )
+
+    while not game.is_game_over():
+        while not game.is_round_over():
+            curr_p = game.state.current_player_id
+            agent = agents[curr_p]
+
+            try:
+                action = agent.choose_action(game)
+                if not action:
+                    print(f"   [GAME DEBUG] No legal actions for player {curr_p}")
+                    game.state.current_player_id = 1 - curr_p
+                    continue
+
+                success, msg, rev_gold, _ = game.step(action)
+                turn_count += 1
+
+                if turn_count <= 5:
+                    print(
+                        f"   [GAME DEBUG] Turn {turn_count}: P{curr_p} action={action}, success={success}, msg={msg}, gold={rev_gold}"
+                    )
+
+                if not success:
+                    errors.append(f"Ход отклонён: {msg}")
+                    raise RuntimeError(msg)
+
+            except Exception as e:
+                errors.append(f"Ошибка агента {curr_p}: {str(e)}")
+                print(f"   [GAME DEBUG] ERROR: {e}")
+                return {
+                    "winner": None,
+                    "scores": {0: 0, 1: 0},
+                    "turns": turn_count,
+                    "errors": errors,
+                }
+
+        print(
+            f"   [GAME DEBUG] Round ended, checking... is_round_over: {game.is_round_over()}"
+        )
+        game.check_round_end()
+        print(
+            f"   [GAME DEBUG] After check_round_end - is_game_over: {game.is_game_over()}, round_number: {game.state.round_number}"
+        )
+
+    total_scores = game.state.total_scores
+    print(
+        f"   [GAME DEBUG] Game over! Scores: P0={total_scores[0]}, P1={total_scores[1]}"
+    )
+
+    winner = None
+    if total_scores[0] > total_scores[1]:
+        winner = 0
+    elif total_scores[1] > total_scores[0]:
+        winner = 1
+
+    return {
+        "winner": winner,
+        "scores": total_scores,
+        "turns": turn_count,
+        "errors": errors,
+    }

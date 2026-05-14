@@ -15,7 +15,7 @@ class ValidationResult:
 
 class AgentValidator:
     REQUIRED_METHOD = "choose_action"
-    REQUIRED_PARAM = "game"
+    ALLOWED_PARAMS = ("game", "play", "state", "g", "gs", "game_state", "player")
 
     @classmethod
     def validate_agent_class(cls, agent_class: type) -> ValidationResult:
@@ -54,9 +54,10 @@ class AgentValidator:
             sig = inspect.signature(choose_action)
             params = list(sig.parameters.keys())
 
-            if cls.REQUIRED_PARAM not in params and len(params) < 2:
+            has_valid_param = any(p in cls.ALLOWED_PARAMS for p in params)
+            if not has_valid_param and len(params) < 2:
                 errors.append(
-                    f"Метод '{cls.REQUIRED_METHOD}' должен принимать параметр 'game'"
+                    f"Метод '{cls.REQUIRED_METHOD}' должен принимать один из параметров: {', '.join(cls.ALLOWED_PARAMS)}"
                 )
                 return ValidationResult(
                     is_valid=False,
@@ -192,10 +193,31 @@ def __init__(self, player_id: int):
 ```
 
 2. **Метод `choose_action`** — принимает объект игры и возвращает действие:
+Имя параметра может быть любым: `game`, `play`, `state`, `g`, `gs`, `game_state`, `player`
 ```python
-def choose_action(self, game: Game) -> Optional[AgentAction]:
+def choose_action(self, game):
     # Ваш код здесь
     pass
+```
+
+### Доступные методы объекта игры:
+
+| Метод | Описание | Возвращает |
+|-------|----------|------------|
+| `get_legal_actions()` | Получить список легальных ходов | List[AgentAction] |
+| `get_hand()` | Получить свои карты (ID карт) | List[int] |
+| `get_scores()` | Получить текущий счёт | Dict[int, int] |
+| `get_current_player()` | Узнать чей ход | int |
+| `is_game_over()` | Проверить окончена ли игра | bool |
+| `state` | Объект состояния игры | MatchState |
+
+### Доступ к состоянию игрока:
+
+```python
+player_state = game.state.players[self.player_id]
+hand = player_state.hand  # Список ID карт в руке
+card_id_to_template = player_state.card_id_to_template  # Dict[int, str] - маппинг ID -> template_id
+broken = player_state.broken_equipments  # Set[EquipmentType] - сломанное оборудование
 ```
 
 ### Доступные типы действий:
@@ -207,26 +229,82 @@ def choose_action(self, game: Game) -> Optional[AgentAction]:
 | `ActionPlayPlayerUtility` | Сыграть карту на игрока (поломка/починка) | `template_id, target_player_id` |
 | `ActionDiscard` | Сбросить карты | `templates, repair_equipment` |
 
-### Пример минимального робота:
+### Статические ID карт (101 карта):
+
+**Колода (ID 1-96):**
+| Шаблон | Диапазон ID |
+|--------|-------------|
+| tunnel_cross | 1-10 |
+| tunnel_t | 11-20 |
+| tunnel_straight | 21-28 |
+| tunnel_corner | 29-38 |
+| tunnel_deadend | 39-42 |
+| tunnel_bridge | 43-46 |
+| tunnel_double_corner | 47-50 |
+| tunnel_split_t_up | 51-54 |
+| tunnel_split_t_l | 55-58 |
+| door_blue | 59-61 |
+| door_green | 62-64 |
+| ladder | 65-68 |
+| act_boom | 69-71 |
+| act_key | 72-74 |
+| act_map | 75-78 |
+| brk_LAMP | 79-81 |
+| brk_CART | 82-84 |
+| brk_PICKAXE | 85-87 |
+| rep_LAMP | 88-90 |
+| rep_CART | 91-93 |
+| rep_PICKAXE | 94-96 |
+
+**Золото (ID 8001-8012):**
+| Шаблон | ID |
+|--------|-----|
+| gold_1_ud | 8001-8002 |
+| gold_1_lr | 8003-8004 |
+| gold_2_corner | 8005-8006 |
+| gold_2_t | 8007-8008 |
+| gold_3_cross | 8009-8010 |
+| gold_3_t | 8011-8012 |
+
+**Стартовые карты:**
+| Шаблон | ID |
+|--------|-----|
+| start_blue | 9001 |
+| start_green | 9002 |
+
+### Примеры роботов:
 
 ```python
-import random
-
-class MyAgent:
+# Вариант 1: с параметром game
+class MyAgent1:
     def __init__(self, player_id: int):
         self.player_id = player_id
     
     def choose_action(self, game):
-        legal_actions = game.get_legal_actions()
-        if not legal_actions:
-            return None
-        return random.choice(legal_actions)
+        return game.get_legal_actions()[0] if game.get_legal_actions() else None
+
+# Вариант 2: с параметром play
+class MyAgent2:
+    def __init__(self, player_id: int):
+        self.player_id = player_id
+    
+    def choose_action(self, play):
+        return play.get_legal_actions()[0] if play.get_legal_actions() else None
+
+# Вариант 3: с параметром state
+class MyAgent3:
+    def __init__(self, player_id: int):
+        self.player_id = player_id
+    
+    def choose_action(self, state):
+        return state.get_legal_actions()[0] if state.get_legal_actions() else None
 ```
 
 ### Важно:
 - Используйте `game.get_legal_actions()` для получения списка легальных ходов
 - Возвращайте `None` если нет доступных ходов
 - Не изменяйте состояние игры напрямую!
+- ID карт в hand — это статические ID из таблицы выше
 """
 
 

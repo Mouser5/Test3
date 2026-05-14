@@ -149,6 +149,7 @@ class ConsoleView:
         print(f"{color}ХОД ИГРОКА {p_id} {ConsoleColor.RESET}")
         print("Ваша рука:")
         for i, t_id in enumerate(state.players[p_id].hand):
+            t_id = state.players[p_id].card_id_to_template.get(t_id)
             tpl = REGISTRY.get(t_id)
             print(f"  {i}: [{tpl.name}] {ConsoleView.render_template_only(t_id)}")
 

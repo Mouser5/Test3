@@ -97,6 +97,12 @@ class GameProxy:
     def get_hand(self) -> List[str]:
         return self._game_state.get("hand", [])
 
+    def get_board(self) -> Dict[str, Dict]:
+        return self._game_state.get("board", {})
+
+    def get_broken_equipments(self, player_id: int) -> List[str]:
+        return self._game_state.get("players_broken", {}).get(player_id, [])
+
     def get_scores(self) -> Dict[int, int]:
         return self._game_state.get("scores", {0: 0, 1: 0})
 

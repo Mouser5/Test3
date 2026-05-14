@@ -1,0 +1,100 @@
+@startuml DSL-Class-Diagram
+!theme plain
+skinparam packageStyle rectangle
+skinparam monochrome true
+
+package "DSL Operations" {
+    class DSLOperation {
+        +code: int
+        +name: str
+        +format: str
+    }
+    
+    class PassOperation {
+        +code = 0
+        +format = "0"
+    }
+    
+    class BuildOperation {
+        +code = 1
+        +format = "1\n{card_id}\n{x};{y}\n{is_rotated}"
+        +card_id: int
+        +x: int
+        +y: int
+        +is_rotated: int
+    }
+    
+    class RepairOperation {
+        +code = 2
+        +variants: list
+    }
+    
+    class DiscardOperation {
+        +code = 3
+        +format = "3\n{card_ids}"
+    }
+    
+    DSLOperation <|-- PassOperation
+    DSLOperation <|-- BuildOperation
+    DSLOperation <|-- RepairOperation
+    DSLOperation <|-- DiscardOperation
+}
+
+package "Game State" {
+    class GameState {
+        +board: dict
+        +players: dict
+    }
+    
+    class BoardEntry {
+        +x: int
+        +y: int
+        +card_id: int
+        +is_rotated: int
+    }
+    
+    class PlayerState {
+        +player_id: int
+        +hand: list[int]
+        +broken_equipments: list[int]
+    }
+    
+    class Equipment {
+        +id: int
+        +name: str
+    }
+    
+    GameState "1" *-- "*" BoardEntry
+    GameState "1" *-- "*" PlayerState
+    PlayerState "1" *-- "*" Equipment
+}
+
+package "Card Types" {
+    class Card {
+        +id: int
+        +template: str
+    }
+    
+    class TunnelCard {
+        +type: str
+    }
+    
+    class GoldCard {
+        +value: int
+    }
+    
+    class ActionCard {
+        +action_type: str
+    }
+    
+    class EquipmentCard {
+        +equipment_type: str
+    }
+    
+    Card <|-- TunnelCard
+    Card <|-- GoldCard
+    Card <|-- ActionCard
+    Card <|-- EquipmentCard
+}
+
+@enduml
