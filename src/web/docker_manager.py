@@ -57,7 +57,8 @@ class DockerManager:
             return True
         except docker.errors.NotFound:
             return False
-        except Exception:
+        except docker.errors.APIError as e:
+            logger.warning(f"Не удалось проверить сеть Docker '{network_name}': {e}")
             return False
 
     def _detect_current_container_network(self) -> Optional[str]:
@@ -72,9 +73,11 @@ class DockerManager:
             )
             if networks:
                 return next(iter(networks.keys()))
-        except Exception:
+        except docker.errors.NotFound:
             return None
-        return None
+        except docker.errors.APIError as e:
+            logger.warning(f"Не удалось определить сеть текущего контейнера: {e}")
+            return None
 
     def _resolve_network(self) -> Optional[str]:
         configured_network = self.network
