@@ -92,7 +92,7 @@ class GameRedisManager:
         channel = self._events_channel(game_id)
         try:
             pattern = f"game:{game_id}:*"
-            keys = self.client.keys(pattern)
+            keys = list(self.client.scan_iter(match=pattern, count=100))
             if keys:
                 self.client.delete(*keys)
             self.client.publish(channel, pickle.dumps({"event": "game_ended"}))

@@ -198,7 +198,10 @@ class DockerManager:
             timeout=10,
         )
         if resp.status_code != 200:
-            self.stop_game_container(container_id)
+            if not self.stop_game_container(container_id):
+                log_container_error(
+                    container_id, "Cleanup failed after init redis error"
+                )
             log_container_error(container_id, f"Init redis failed: {resp.text}")
             return {"error": f"Init redis failed: {resp.text}"}
 
@@ -245,7 +248,10 @@ class DockerManager:
             timeout=10,
         )
         if resp.status_code != 200:
-            self.stop_game_container(container_id)
+            if not self.stop_game_container(container_id):
+                log_container_error(
+                    container_id, "Cleanup failed after init redis error"
+                )
             log_container_error(container_id, f"Init redis failed: {resp.text}")
             return {"error": f"Init redis failed: {resp.text}"}
 
@@ -280,7 +286,15 @@ class DockerManager:
             return False
 
     def stop_and_remove_container(self, container_id: str) -> bool:
-        return self.stop_game_container(container_id)
+        try:
+            container = self.client.containers.get(container_id)
+            container.stop()
+            container.remove()
+            log_container_stop(container_id, "stop_and_remove")
+            return True
+        except Exception:
+            log_container_error(container_id, "Ошибка при stop_and_remove")
+            return False
 
     def get_container_status(self, container_id: str) -> Optional[str]:
         try:

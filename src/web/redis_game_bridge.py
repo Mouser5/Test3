@@ -116,8 +116,18 @@ class RedisGameBridge:
         game_config: Optional[Dict[str, Any]] = None,
         action_timeout_sec: float = 2.0,
     ) -> Dict[str, Any]:
+        """
+        Run a match between two bots in separate Redis-driven containers.
+
+        Returns a dictionary with:
+        - game_id: str
+        - winner: Optional[int]
+        - reason: Optional[str]
+        - turns: int
+        - scores: Dict[int, int]
+        """
         game_cfg = game_config or {}
-        game_id = str(uuid.uuid4())
+        game_id = str(uuid.uuid4())[:8]
         game = self.game_engine_factory(game_cfg)
         max_turns = int(game_cfg.get("max_turns", 500))
 
@@ -130,6 +140,7 @@ class RedisGameBridge:
                 "winner": None,
                 "reason": f"container_start_error_p0: {c0['error']}",
                 "turns": 0,
+                "scores": {0: 0, 1: 0},
             }
 
         c1 = self.docker.start_player_container_redis(
@@ -142,12 +153,24 @@ class RedisGameBridge:
                 "winner": None,
                 "reason": f"container_start_error_p1: {c1['error']}",
                 "turns": 0,
+                "scores": {0: 0, 1: 0},
             }
 
         container_ids = [c0["container_id"], c1["container_id"]]
 
-        self.redis.wait_for_listener_ready(game_id, timeout=5.0, player_id=0)
-        self.redis.wait_for_listener_ready(game_id, timeout=5.0, player_id=1)
+        ready0 = self.redis.wait_for_listener_ready(game_id, timeout=5.0, player_id=0)
+        ready1 = self.redis.wait_for_listener_ready(game_id, timeout=5.0, player_id=1)
+        if not (ready0 and ready1):
+            for cid in container_ids:
+                self.docker.stop_and_remove_container(cid)
+            self.redis.delete_game(game_id)
+            return {
+                "game_id": game_id,
+                "winner": None,
+                "reason": "listener_ready_timeout",
+                "turns": 0,
+                "scores": {0: 0, 1: 0},
+            }
 
         try:
             turn = 0
@@ -191,6 +214,7 @@ class RedisGameBridge:
                     game.state.current_player_id = 1 - current_player
                     turn += 1
                     done = game.is_game_over()
+                    winner = self._winner_from_scores(game.state.total_scores) if done else None
                     reason = "no_action"
                     self.redis.publish_game_event(
                         game_id=game_id,
@@ -206,13 +230,7 @@ class RedisGameBridge:
                     )
                     if turn >= max_turns:
                         done = True
-                        scores = game.state.total_scores
-                        if scores[0] > scores[1]:
-                            winner = 0
-                        elif scores[1] > scores[0]:
-                            winner = 1
-                        else:
-                            winner = None
+                        winner = self._winner_from_scores(game.state.total_scores)
                         reason = "max_turns_reached"
                         break
                     continue
@@ -226,13 +244,7 @@ class RedisGameBridge:
                 turn += 1
 
                 if done:
-                    scores = game.state.total_scores
-                    if scores[0] > scores[1]:
-                        winner = 0
-                    elif scores[1] > scores[0]:
-                        winner = 1
-                    else:
-                        winner = None
+                    winner = self._winner_from_scores(game.state.total_scores)
 
                 self.redis.publish_game_event(
                     game_id=game_id,
@@ -249,13 +261,7 @@ class RedisGameBridge:
 
                 if turn >= max_turns:
                     done = True
-                    scores = game.state.total_scores
-                    if scores[0] > scores[1]:
-                        winner = 0
-                    elif scores[1] > scores[0]:
-                        winner = 1
-                    else:
-                        winner = None
+                    winner = self._winner_from_scores(game.state.total_scores)
                     reason = "max_turns_reached"
                     break
 
@@ -277,6 +283,16 @@ class RedisGameBridge:
             for cid in container_ids:
                 self.docker.stop_and_remove_container(cid)
             self.redis.delete_game(game_id)
+
+    @staticmethod
+    def _winner_from_scores(scores: Dict[int, int]) -> Optional[int]:
+        p0 = scores.get(0, 0)
+        p1 = scores.get(1, 0)
+        if p0 > p1:
+            return 0
+        if p1 > p0:
+            return 1
+        return None
 
     def _run_game_loop(
         self,
