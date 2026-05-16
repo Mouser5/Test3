@@ -23,13 +23,18 @@ from web.logger import (
 class RedisGameBridge:
     def __init__(
         self,
+        docker_manager=None,
+        redis_client: GameRedisManager = None,
+        game_engine_factory=None,
         redis_mgr: GameRedisManager = None,
         docker_mgr=None,
     ):
-        from web.docker_manager import docker_manager
+        from web.docker_manager import docker_manager as default_docker_manager
+        from game import Game
 
-        self.redis = redis_mgr or game_redis
-        self.docker = docker_mgr or docker_manager
+        self.redis = redis_client or redis_mgr or game_redis
+        self.docker = docker_mgr or docker_manager or default_docker_manager
+        self.game_engine_factory = game_engine_factory or (lambda _config: Game())
         self._current_container_id: Optional[str] = None
 
     def run_with_container(
@@ -103,6 +108,191 @@ class RedisGameBridge:
                 self.redis.delete_game(game_id)
             except Exception:
                 logger.exception(f"Failed to delete Redis game {game_id}")
+
+    def run_game_two_containers(
+        self,
+        bot0_code: str,
+        bot1_code: str,
+        game_config: Optional[Dict[str, Any]] = None,
+        action_timeout_sec: float = 2.0,
+    ) -> Dict[str, Any]:
+        """
+        Run a match between two bots in separate Redis-driven containers.
+
+        Returns a dictionary with:
+        - game_id: str
+        - winner: Optional[int]
+        - reason: Optional[str]
+        - turns: int
+        - scores: Dict[int, int]
+        """
+        game_cfg = game_config or {}
+        game_id = str(uuid.uuid4())[:8]
+        game = self.game_engine_factory(game_cfg)
+        max_turns = int(game_cfg.get("max_turns", 500))
+
+        c0 = self.docker.start_player_container_redis(
+            bot_code=bot0_code, game_id=game_id, player_id=0
+        )
+        if "error" in c0:
+            return {
+                "game_id": game_id,
+                "winner": None,
+                "reason": f"container_start_error_p0: {c0['error']}",
+                "turns": 0,
+                "scores": {0: 0, 1: 0},
+            }
+
+        c1 = self.docker.start_player_container_redis(
+            bot_code=bot1_code, game_id=game_id, player_id=1
+        )
+        if "error" in c1:
+            self.docker.stop_and_remove_container(c0["container_id"])
+            return {
+                "game_id": game_id,
+                "winner": None,
+                "reason": f"container_start_error_p1: {c1['error']}",
+                "turns": 0,
+                "scores": {0: 0, 1: 0},
+            }
+
+        container_ids = [c0["container_id"], c1["container_id"]]
+
+        ready0 = self.redis.wait_for_listener_ready(game_id, timeout=5.0, player_id=0)
+        ready1 = self.redis.wait_for_listener_ready(game_id, timeout=5.0, player_id=1)
+        if not (ready0 and ready1):
+            for cid in container_ids:
+                self.docker.stop_and_remove_container(cid)
+            self.redis.delete_game(game_id)
+            return {
+                "game_id": game_id,
+                "winner": None,
+                "reason": "listener_ready_timeout",
+                "turns": 0,
+                "scores": {0: 0, 1: 0},
+            }
+
+        try:
+            turn = 0
+            done = False
+            winner = None
+            reason = None
+
+            current_player = game.state.current_player_id
+            self.redis.publish_game_event(
+                game_id=game_id,
+                event_type="game_start",
+                payload={"state": self._game_to_json(game, current_player), "turn": turn},
+            )
+
+            while not done:
+                current_player = game.state.current_player_id
+                state_for_player = self._game_to_json(game, current_player)
+
+                self.redis.signal_turn(
+                    game_id=game_id,
+                    player_id=current_player,
+                    turn=turn,
+                    state=state_for_player,
+                )
+
+                action = self.redis.wait_for_action(
+                    game_id=game_id,
+                    player_id=current_player,
+                    turn=turn,
+                    timeout_sec=action_timeout_sec,
+                )
+
+                if action is None:
+                    done = True
+                    winner = 1 - current_player
+                    reason = f"timeout_player_{current_player}"
+                    break
+
+                parsed_action = self._json_to_action(action)
+                if parsed_action is None:
+                    game.state.current_player_id = 1 - current_player
+                    turn += 1
+                    done = game.is_game_over()
+                    winner = self._winner_from_scores(game.state.total_scores) if done else None
+                    reason = "no_action"
+                    self.redis.publish_game_event(
+                        game_id=game_id,
+                        event_type="turn_result",
+                        payload={
+                            "turn": turn,
+                            "player_id": current_player,
+                            "action": action,
+                            "done": done,
+                            "winner": winner,
+                            "reason": reason,
+                        },
+                    )
+                    if turn >= max_turns:
+                        done = True
+                        winner = self._winner_from_scores(game.state.total_scores)
+                        reason = "max_turns_reached"
+                        break
+                    continue
+
+                success, msg, _, step_reason = game.step(parsed_action)
+                done = game.is_game_over()
+                reason = step_reason or msg
+                if not success:
+                    reason = f"invalid_action_player_{current_player}: {msg}"
+                    game.state.current_player_id = 1 - current_player
+                turn += 1
+
+                if done:
+                    winner = self._winner_from_scores(game.state.total_scores)
+
+                self.redis.publish_game_event(
+                    game_id=game_id,
+                    event_type="turn_result",
+                    payload={
+                        "turn": turn,
+                        "player_id": current_player,
+                        "action": action,
+                        "done": done,
+                        "winner": winner,
+                        "reason": reason,
+                    },
+                )
+
+                if turn >= max_turns:
+                    done = True
+                    winner = self._winner_from_scores(game.state.total_scores)
+                    reason = "max_turns_reached"
+                    break
+
+            self.redis.publish_game_event(
+                game_id=game_id,
+                event_type="game_over",
+                payload={"winner": winner, "reason": reason, "turns": turn},
+            )
+
+            return {
+                "game_id": game_id,
+                "winner": winner,
+                "reason": reason,
+                "turns": turn,
+                "scores": game.state.total_scores,
+            }
+
+        finally:
+            for cid in container_ids:
+                self.docker.stop_and_remove_container(cid)
+            self.redis.delete_game(game_id)
+
+    @staticmethod
+    def _winner_from_scores(scores: Dict[int, int]) -> Optional[int]:
+        p0 = scores.get(0, 0)
+        p1 = scores.get(1, 0)
+        if p0 > p1:
+            return 0
+        if p1 > p0:
+            return 1
+        return None
 
     def _run_game_loop(
         self,

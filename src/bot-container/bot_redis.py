@@ -79,6 +79,7 @@ class RedisBotListener:
                 "x": getattr(action, "x", None),
                 "y": getattr(action, "y", None),
                 "is_rotated_180": getattr(action, "is_rotated_180", False),
+                "target_player_id": getattr(action, "target_player_id", None),
                 "templates": getattr(action, "templates", None),
                 "repair_equipment": getattr(action, "repair_equipment", None),
             }
@@ -92,6 +93,7 @@ class RedisBotListener:
         pubsub = self.client.pubsub()
         pubsub.subscribe(channel)
         self.client.set(f"game:{self.game_id}:listener_ready", "1")
+        self.client.set(f"game:{self.game_id}:player:{self.player_id}:listener_ready", "1")
 
         print(f"[RedisBot] Listening on {channel}")
 
