@@ -62,6 +62,7 @@ class DockerManager:
             return False
 
     def _detect_current_container_network(self) -> Optional[str]:
+        """Определяет сеть контейнера по HOSTNAME текущего процесса."""
         container_name = os.getenv("HOSTNAME")
         if not container_name:
             return None
@@ -72,7 +73,7 @@ class DockerManager:
                 current_container.attrs.get("NetworkSettings", {}).get("Networks", {})
             )
             if networks:
-                return next(iter(networks.keys()))
+                return next(iter(networks.keys()), None)
         except docker.errors.NotFound:
             return None
         except docker.errors.APIError as e:
@@ -80,6 +81,7 @@ class DockerManager:
             return None
 
     def _resolve_network(self) -> Optional[str]:
+        """Возвращает рабочую сеть Docker и кэширует автоопределённое имя в self.network."""
         configured_network = self.network
         if configured_network and self._network_exists(configured_network):
             return configured_network
