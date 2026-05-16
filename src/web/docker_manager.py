@@ -73,7 +73,22 @@ class DockerManager:
                 current_container.attrs.get("NetworkSettings", {}).get("Networks", {})
             )
             if networks:
-                return next(iter(networks.keys()), None)
+                network_names = list(networks.keys())
+                preferred_default = next(
+                    (name for name in network_names if name.endswith("_default")),
+                    None,
+                )
+                if preferred_default:
+                    return preferred_default
+
+                preferred_non_bridge = next(
+                    (name for name in network_names if name != "bridge"),
+                    None,
+                )
+                if preferred_non_bridge:
+                    return preferred_non_bridge
+
+                return network_names[0]
         except docker.errors.NotFound:
             return None
         except docker.errors.APIError as e:
