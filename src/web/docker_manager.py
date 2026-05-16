@@ -17,7 +17,7 @@ class DockerManager:
         self._docker_client = None
         self.game_api_url = "http://game-api:8000"
         self.redis_url = "redis://redis:6379/0"
-        self.network = os.getenv("DOCKER_NETWORK", "vkrtemp_default")
+        self.network = os.getenv("DOCKER_NETWORK")
 
     @property
     def client(self):
@@ -51,6 +51,45 @@ class DockerManager:
             time.sleep(0.5)
         return False
 
+    def _network_exists(self, network_name: str) -> bool:
+        try:
+            self.client.networks.get(network_name)
+            return True
+        except docker.errors.NotFound:
+            return False
+        except Exception:
+            return False
+
+    def _detect_current_container_network(self) -> Optional[str]:
+        container_name = os.getenv("HOSTNAME")
+        if not container_name:
+            return None
+
+        try:
+            current_container = self.client.containers.get(container_name)
+            networks = (
+                current_container.attrs.get("NetworkSettings", {}).get("Networks", {})
+            )
+            if networks:
+                return next(iter(networks.keys()))
+        except Exception:
+            return None
+        return None
+
+    def _resolve_network(self) -> Optional[str]:
+        configured_network = self.network
+        if configured_network and self._network_exists(configured_network):
+            return configured_network
+
+        detected_network = self._detect_current_container_network()
+        if detected_network and self._network_exists(detected_network):
+            self.network = detected_network
+            return detected_network
+
+        if configured_network:
+            log_container_error("network", f"Сеть Docker не найдена: {configured_network}")
+        return None
+
     def _start_container(
         self,
         image: str,
@@ -58,13 +97,17 @@ class DockerManager:
         environment: dict,
     ) -> Dict[str, str]:
         try:
+            network_name = self._resolve_network()
+            if not network_name:
+                return {"error": "Docker network is not available"}
+
             container = self.client.containers.run(
                 image,
                 name=name,
                 detach=True,
                 environment=environment,
                 remove=False,
-                network=self.network,
+                network=network_name,
             )
 
             if not self._wait_container_running(container):
