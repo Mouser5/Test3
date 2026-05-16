@@ -69,7 +69,6 @@ class RedisBotListener:
 
         game = GameProxy.from_state(state_dict)
         action = self.agent.choose_action(game)
-
         if action is None:
             self._store_action({"type": "None", "reason": "no_legal_actions"})
         else:
@@ -79,7 +78,6 @@ class RedisBotListener:
                 "x": getattr(action, "x", None),
                 "y": getattr(action, "y", None),
                 "is_rotated_180": getattr(action, "is_rotated_180", False),
-                "target_player_id": getattr(action, "target_player_id", None),
                 "templates": getattr(action, "templates", None),
                 "repair_equipment": getattr(action, "repair_equipment", None),
             }
@@ -127,7 +125,6 @@ class RedisBotListener:
                 elif event_type == "game_ended":
                     print("[RedisBot] Game ended")
                     break
-
         except KeyboardInterrupt:
             pass
         finally:
