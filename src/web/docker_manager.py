@@ -209,6 +209,54 @@ class DockerManager:
             "game_id": game_id,
         }
 
+    def start_player_container_redis(
+        self,
+        bot_code: str,
+        game_id: str,
+        player_id: int,
+    ) -> Dict[str, str]:
+        container_id = f"game-{game_id}-p{player_id}-{uuid.uuid4().hex[:8]}"
+
+        result = self._start_container(
+            "gnomes-bot:latest",
+            container_id,
+            {
+                "GAME_API_URL": self.game_api_url,
+                "GAME_ID": game_id,
+                "REDIS_URL": self.redis_url,
+                "REDIS_MODE": "1",
+                "USER_ID": str(player_id),
+            },
+        )
+
+        if "error" in result:
+            return result
+
+        base_url = f"http://{container_id}:8001"
+
+        resp = requests.post(
+            f"{base_url}/init_redis",
+            json={
+                "code": bot_code,
+                "player_id": player_id,
+                "redis_url": self.redis_url,
+                "game_id": game_id,
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            self.stop_game_container(container_id)
+            log_container_error(container_id, f"Init redis failed: {resp.text}")
+            return {"error": f"Init redis failed: {resp.text}"}
+
+        log_container_start(container_id, base_url, bot_code)
+        return {
+            "container_id": container_id,
+            "url": base_url,
+            "game_id": game_id,
+            "player_id": str(player_id),
+        }
+
     def stop_game_container(self, container_id: str) -> bool:
         try:
             container = self.client.containers.get(container_id)
@@ -230,6 +278,9 @@ class DockerManager:
         except Exception:
             log_container_error(container_id, "Ошибка при остановке")
             return False
+
+    def stop_and_remove_container(self, container_id: str) -> bool:
+        return self.stop_game_container(container_id)
 
     def get_container_status(self, container_id: str) -> Optional[str]:
         try:
